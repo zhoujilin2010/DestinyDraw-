@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>买彩票 中大奖</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="page-shell">
+        <section id="homeView" class="home-view">
+            <h1 class="hero-title">买彩票 中大奖</h1>
+
+            <div class="nav-grid" aria-label="功能导航">
+                <!-- 卡片标题 / 描述 / data-page 三处可独立替换 -->
+                <!-- 第1行 -->
+                <button class="nav-card" data-page="ssq-auto" type="button">
+                    <span class="nav-card-title">双色球自动选号</span>
+                    <span class="nav-card-desc">按策略自动分析并推荐双色球号码</span>
+                </button>
+
+                <button class="nav-card" data-page="dlt-auto" type="button">
+                    <span class="nav-card-title">大乐透自助选号</span>
+                    <span class="nav-card-desc">按策略自动分析并推荐大乐透号码</span>
+                </button>
+
+                <button class="nav-card" data-page="ssq-miss" type="button">
+                    <span class="nav-card-title">错过100万了吗</span>
+                    <span class="nav-card-desc">输入历史号码，看看差点中了多少</span>
+                </button>
+
+                <!-- 第2行 -->
+                <button class="nav-card" data-page="ssq-quick" type="button">
+                    <span class="nav-card-title">机选双色球</span>
+                    <span class="nav-card-desc">随机生成号码，支持单式、复式、胆拖</span>
+                </button>
+
+                <button class="nav-card" data-page="dlt-quick" type="button">
+                    <span class="nav-card-title">机选大乐透</span>
+                    <span class="nav-card-desc">随机生成号码，支持单式、复式、胆拖</span>
+                </button>
+
+                <button class="nav-card" data-page="dlt-when" type="button">
+                    <span class="nav-card-title">啥时候能中100万</span>
+                    <span class="nav-card-desc">基于概率估算你还要等多久</span>
+                </button>
+            </div>
+        </section>
+
+        <section id="subpageView" class="subpage-view hidden">
+            <div class="subpage-header">
+                <button id="backHomeBtn" class="back-btn" type="button">返回首页</button>
+                <div class="subpage-header-copy">
+                    <p class="subpage-kicker">二级界面</p>
+                    <h2 id="subpageTitle" class="subpage-title"></h2>
+                    <p id="subpageDesc" class="subpage-desc"></p>
+                </div>
+            </div>
+
+            <div class="subpage-panel">
+                <div class="model-note">
+                    <h3>统一随机模型</h3>
+                    <p id="modelNoteText"></p>
+                </div>
+
+                <div id="subpageContent" class="subpage-content"></div>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
