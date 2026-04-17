@@ -170,6 +170,11 @@ body {
 .subpage-title {
     margin: 0 0 8px;
     font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 800;
+    background: linear-gradient(135deg, #007aff 0%, #af52de 60%, #ff375f 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .subpage-desc {
@@ -688,4 +693,614 @@ body {
 .auto-confirm-btn:active {
     transform: scale(0.975);
     transition-duration: 0.08s;
+}
+
+/* ═══════════════════════════════════════════════
+   这辈子能中500万吗 —— 硬核彩票人生模拟器
+   ═══════════════════════════════════════════════ */
+
+/* 整体容器：亮色清爽风格 */
+.ls-wrap {
+    background: #ffffff;
+    border-radius: 22px;
+    padding: 32px 28px;
+    color: #1a1a2a;
+    position: relative;
+    overflow: hidden;
+    box-shadow:
+        0 0 0 1px rgba(100, 80, 220, 0.1),
+        0 20px 60px rgba(0, 0, 0, 0.07),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* 背景网格装饰 */
+.ls-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(100, 80, 220, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(100, 80, 220, 0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+}
+
+/* 顶部标题区 */
+.ls-title {
+    margin: 0 0 4px;
+    font-size: clamp(1.3rem, 3vw, 1.8rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #00ff88 0%, #00c9ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.ls-subtitle {
+    margin: 0 0 28px;
+    font-size: 0.82rem;
+    color: #9090a8;
+    letter-spacing: 0.03em;
+}
+
+/* 分组标题 */
+.ls-section-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #aaaacc;
+    margin-bottom: 10px;
+}
+
+/* 选项卡行：投注方式 / 选号模式 */
+.ls-tab-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.ls-tab {
+    border: 1px solid #e8e8f2;
+    background: #f5f5fb;
+    color: #777;
+    border-radius: 10px;
+    padding: 9px 20px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: inherit;
+}
+
+.ls-tab:hover {
+    border-color: rgba(100, 80, 220, 0.35);
+    color: #444;
+}
+
+.ls-tab.active {
+    background: linear-gradient(135deg, rgba(100,80,220,0.1), rgba(60,180,220,0.1));
+    border-color: rgba(100, 80, 220, 0.5);
+    color: #5040cc;
+    font-weight: 600;
+}
+
+/* 配置区域 */
+.ls-config-area {
+    background: #f7f7fd;
+    border: 1px solid #e8e8f2;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+/* 球选择器 */
+.ls-ball-picker {
+    margin-bottom: 16px;
+}
+
+.ls-ball-picker-title {
+    font-size: 0.8rem;
+    color: #8888aa;
+    margin-bottom: 10px;
+}
+
+.ls-ball-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.ls-ball {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    background: #f0f0f8;
+    color: #999;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ls-ball.red-ball:hover {
+    border-color: #cc3333;
+    color: #ff6666;
+}
+
+.ls-ball.red-ball.active {
+    background: radial-gradient(circle at 35% 35%, #ff6666, #cc2222);
+    border-color: #ff4444;
+    color: #fff;
+    box-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+}
+
+/* 胆拖专用状态 */
+.ls-ball.red-ball.ls-dan {
+    background: radial-gradient(circle at 35% 35%, #ffbb44, #cc7700);
+    border-color: #dd8800;
+    color: #fff;
+    font-weight: 800;
+    box-shadow: 0 0 10px rgba(220, 140, 0, 0.55);
+}
+
+.ls-ball.red-ball.ls-tuo {
+    background: radial-gradient(circle at 35% 35%, #5599ff, #2255cc);
+    border-color: #3366ee;
+    color: #fff;
+    box-shadow: 0 0 8px rgba(50, 100, 220, 0.45);
+}
+
+/* 结果页展示的胆/拖球 */
+.ls-wball.ls-dan {
+    background: radial-gradient(circle at 35% 35%, #ffbb44, #cc7700);
+    border-color: #dd8800;
+}
+.ls-wball.ls-tuo {
+    background: radial-gradient(circle at 35% 35%, #5599ff, #2255cc);
+    border-color: #3366ee;
+}
+
+.ls-ball.blue-ball:hover {
+    border-color: #2266cc;
+    color: #4488ff;
+}
+
+.ls-ball.blue-ball.active {
+    background: radial-gradient(circle at 35% 35%, #4488ff, #1144bb);
+    border-color: #3366ff;
+    color: #fff;
+    box-shadow: 0 0 10px rgba(51, 102, 255, 0.5);
+}
+
+/* 数字输入行 */
+.ls-number-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.ls-number-label {
+    font-size: 0.85rem;
+    color: #777;
+    min-width: 120px;
+}
+
+.ls-number-input {
+    width: 80px;
+    background: #ffffff;
+    border: 1px solid #d8d8ee;
+    border-radius: 8px;
+    color: #1a1a2a;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 7px 10px;
+    text-align: center;
+    font-family: inherit;
+    transition: border-color 0.15s;
+}
+
+.ls-number-input:focus {
+    outline: none;
+    border-color: rgba(100, 80, 220, 0.5);
+}
+
+.ls-number-hint {
+    font-size: 0.75rem;
+    color: #aaaacc;
+}
+
+/* 统计信息条 */
+.ls-info-bar {
+    display: flex;
+    gap: 20px;
+    padding: 14px 18px;
+    background: #f7f7fd;
+    border: 1px solid #e8e8f2;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.ls-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ls-info-key {
+    font-size: 0.7rem;
+    color: #aaaacc;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.ls-info-val {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #5040cc;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 错误提示 */
+.ls-error {
+    background: rgba(255, 60, 60, 0.1);
+    border: 1px solid rgba(255, 60, 60, 0.3);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    color: #ff6666;
+    margin-bottom: 18px;
+}
+
+/* 开始按钮 */
+.ls-start-btn {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #6450e0, #3bb4e0);
+    color: #ffffff;
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 20px rgba(100, 80, 220, 0.3);
+    position: relative;
+    z-index: 1;
+}
+
+.ls-start-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(100, 80, 220, 0.45);
+}
+
+.ls-start-btn:active {
+    transform: scale(0.98);
+    transition-duration: 0.08s;
+}
+
+.ls-start-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ── 模拟运行中状态 ── */
+.ls-running {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    gap: 24px;
+}
+
+.ls-running-label {
+    font-size: 0.78rem;
+    letter-spacing: 0.18em;
+    color: #aaaacc;
+    text-transform: uppercase;
+}
+
+/* 年份大数字展示 */
+.ls-year-display {
+    text-align: center;
+}
+
+.ls-year-number {
+    display: block;
+    font-size: clamp(4rem, 12vw, 7rem);
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, #ff4444 0%, #ff8800 50%, #ffcc00 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+    animation: ls-pulse-num 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes ls-pulse-num {
+    from { opacity: 0.85; }
+    to   { opacity: 1; }
+}
+
+.ls-year-unit {
+    display: block;
+    font-size: 0.85rem;
+    color: #aaaacc;
+    letter-spacing: 0.1em;
+    margin-top: 6px;
+}
+
+.ls-period-counter {
+    font-size: 0.88rem;
+    color: #888;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 流逝感进度条 */
+.ls-progress-bar {
+    width: 100%;
+    height: 3px;
+    background: #e8e8f2;
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+.ls-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00ff88, #00c9ff);
+    border-radius: 99px;
+    animation: ls-progress-anim 2s ease-in-out infinite;
+    transform-origin: left;
+}
+
+@keyframes ls-progress-anim {
+    0%   { width: 10%; margin-left: 0; }
+    50%  { width: 40%; margin-left: 30%; }
+    100% { width: 10%; margin-left: 90%; }
+}
+
+/* ── 结算结果面板 ── */
+.ls-result {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* 结算结果页总容器 */
+.ls-result-done {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.ls-result-banner {
+    text-align: center;
+    padding: 20px;
+    border-radius: 14px;
+    border: 1px solid rgba(100, 80, 220, 0.18);
+    background: linear-gradient(135deg, rgba(100,80,220,0.04), rgba(60,180,220,0.04));
+}
+
+.ls-result-banner-emoji {
+    font-size: 2.8rem;
+    line-height: 1;
+    margin-bottom: 8px;
+}
+
+.ls-result-banner-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #1a1a2a;
+}
+
+.ls-result-banner-sub {
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 4px;
+}
+
+/* 结算卡片网格 */
+.ls-result-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+@media (max-width: 600px) {
+    .ls-result-grid { grid-template-columns: 1fr; }
+}
+
+.ls-result-card {
+    background: #f7f7fd;
+    border: 1px solid #e8e8f2;
+    border-radius: 14px;
+    padding: 16px 18px;
+}
+
+.ls-result-card-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #aaaacc;
+    margin-bottom: 8px;
+}
+
+.ls-result-card-main {
+    font-size: 1.6rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+.ls-result-card-sub {
+    font-size: 0.78rem;
+    color: #9090a8;
+    margin-top: 4px;
+}
+
+.ls-result-card-main.green  { color: #00aa55; }
+.ls-result-card-main.yellow { color: #cc8800; }
+.ls-result-card-main.red    { color: #dd2222; }
+.ls-result-card-main.cyan   { color: #0077cc; }
+
+/* 大亏损显示 */
+.ls-loss-display {
+    background: rgba(220, 44, 44, 0.05);
+    border: 1px solid rgba(220, 44, 44, 0.2);
+    border-radius: 14px;
+    padding: 20px 24px;
+    text-align: center;
+}
+
+.ls-loss-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #884444;
+    margin-bottom: 8px;
+}
+
+.ls-loss-amount {
+    font-size: clamp(2.2rem, 7vw, 3.5rem);
+    font-weight: 900;
+    color: #cc2222;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 盈利显示 */
+.ls-profit-display {
+    background: rgba(0, 170, 80, 0.05);
+    border: 1px solid rgba(0, 170, 80, 0.2);
+    border-radius: 14px;
+    padding: 20px 24px;
+    text-align: center;
+}
+
+.ls-profit-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #005533;
+    margin-bottom: 8px;
+}
+
+.ls-profit-amount {
+    font-size: clamp(2.2rem, 7vw, 3.5rem);
+    font-weight: 900;
+    color: #00aa55;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 灵魂评语框 */
+.ls-comment {
+    background: #f7f7fd;
+    border: 1px solid #e0e0f0;
+    border-radius: 14px;
+    padding: 24px 28px;
+    text-align: center;
+    position: relative;
+}
+
+.ls-comment::before {
+    content: '📢  系统评语';
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #aaaacc;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.ls-comment-text {
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.9;
+    color: #1a1a2a;
+    font-style: normal;
+}
+
+/* 再来一次按钮 */
+.ls-retry-btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border: 1px solid rgba(100, 80, 220, 0.3);
+    border-radius: 12px;
+    background: transparent;
+    color: #5040cc;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.18s ease;
+}
+
+.ls-retry-btn:hover {
+    background: rgba(100, 80, 220, 0.06);
+    border-color: rgba(100, 80, 220, 0.5);
+}
+
+/* 机选号码展示（固定模式开始时） */
+.ls-fixed-ticket {
+    background: #f5f5fb;
+    border: 1px solid #e0e0f0;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    color: #9090a8;
+    line-height: 1.7;
+}
+
+.ls-fixed-ticket span {
+    font-weight: 600;
+    color: #555;
+}
+
+/* 模拟已中局部提示号码 */
+.ls-winning-ticket {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.ls-wball {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.ls-wball.red {
+    background: radial-gradient(circle at 35% 35%, #ff6666, #cc2222);
+    box-shadow: 0 0 8px rgba(255,68,68,0.4);
+}
+
+.ls-wball.blue {
+    background: radial-gradient(circle at 35% 35%, #4488ff, #1144bb);
+    box-shadow: 0 0 8px rgba(51,102,255,0.4);
 }

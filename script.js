@@ -52,9 +52,9 @@ const SUBPAGES = {
         game: 'ssq'
     },
     'dlt-when': {
-        title: '啥时候能中100万',
-        desc: '这里先作为大乐透概率与模拟分析的独立界面，后续单独补交互。',
-        game: 'dlt'
+        title: '这辈子能中500万吗？',
+        desc: '彩票人生模拟器，什么时候能中一等奖到底是逆天改命，还是一穷到底',
+        game: 'ssq'
     },
     'ssq-quick': {
         title: '机选双色球',
@@ -68,8 +68,9 @@ const SUBPAGES = {
     }
 };
 
-const QUICK_PAGE_KEYS = new Set(['ssq-quick', 'dlt-quick']);
-const AUTO_PAGE_KEYS  = new Set(['ssq-auto',  'dlt-auto']);
+const QUICK_PAGE_KEYS    = new Set(['ssq-quick', 'dlt-quick']);
+const AUTO_PAGE_KEYS     = new Set(['ssq-auto',  'dlt-auto']);
+const LIFE_SIM_PAGE_KEYS = new Set(['dlt-when']);
 
 /* 组合数 C(n, k) */
 function combination(n, k) {
@@ -782,18 +783,32 @@ function openSubpage(pageKey) {
     activePageKey = pageKey;
     subpageTitle.textContent = page.title;
     subpageDesc.textContent = page.desc;
-    modelNoteText.textContent = getModelDescription();
 
-    if (QUICK_PAGE_KEYS.has(pageKey)) {
-        quickState = createQuickState(page.game, pageKey);
-        renderQuickPage();
-    } else if (AUTO_PAGE_KEYS.has(pageKey)) {
-        quickState = createAutoState(page.game, pageKey);
-        renderAutoPage();
-    } else {
+    if (LIFE_SIM_PAGE_KEYS.has(pageKey)) {
+        // 废弃默认的「统一随机模型」说明栏（life-sim 有自己的 UI）
+        modelNoteText.textContent = '';
+        const modelNoteEl = document.querySelector('.model-note');
+        if (modelNoteEl) modelNoteEl.style.display = 'none';
         quickState = null;
-        subpageContent.innerHTML = '';
-        subpageContent.appendChild(renderPlaceholderContent(pageKey));
+        lifeSimState = createLifeSimState();
+        renderLifeSimPage();
+    } else {
+        // 恢复 model-note 显示
+        modelNoteText.textContent = getModelDescription();
+        const modelNoteEl = document.querySelector('.model-note');
+        if (modelNoteEl) modelNoteEl.style.display = '';
+
+        if (QUICK_PAGE_KEYS.has(pageKey)) {
+            quickState = createQuickState(page.game, pageKey);
+            renderQuickPage();
+        } else if (AUTO_PAGE_KEYS.has(pageKey)) {
+            quickState = createAutoState(page.game, pageKey);
+            renderAutoPage();
+        } else {
+            quickState = null;
+            subpageContent.innerHTML = '';
+            subpageContent.appendChild(renderPlaceholderContent(pageKey));
+        }
     }
 
     homeView.classList.add('hidden');
@@ -801,6 +816,12 @@ function openSubpage(pageKey) {
 }
 
 function goHome() {
+    // 终止正在运行的 life-sim worker
+    if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
+    lifeSimState = null;
+    // 恢复 model-note 显示（以防从 life-sim 页回来）
+    const modelNoteEl = document.querySelector('.model-note');
+    if (modelNoteEl) modelNoteEl.style.display = '';
     activePageKey = null;
     subpageView.classList.add('hidden');
     homeView.classList.remove('hidden');
@@ -1117,3 +1138,1066 @@ subpageContent.addEventListener('change', event => {
         updateQuickField(field, event.target.value);
     }
 });
+
+/* ══════════════════════════════════════════════════════════════
+   这辈子能中500万吗？—— 硬核彩票人生模拟器
+   核心逻辑 + UI 渲染
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Web Worker 源码（以字符串形式内联，通过 Blob URL 创建） ── */
+const LIFE_SIM_WORKER_SRC = `
+"use strict";
+// 用 Uint8Array 做快速成员判断，避免 Set 或 object 的开销
+const MARK33 = new Uint8Array(34);   // 下标 1-33
+const MARK16 = new Uint8Array(17);   // 下标 1-16
+const TICKET_MARK = new Uint8Array(34); // 用于随机单式每张票的判断
+
+/* 从 1-33 中拒绝采样无放回取 6 个数 */
+function p33_6() {
+    var d = new Array(6), c = 0, n;
+    while (c < 6) {
+        n = 1 + ((Math.random() * 33) | 0);
+        if (!MARK33[n]) { MARK33[n] = 1; d[c++] = n; }
+    }
+    for (var i = 0; i < 6; i++) MARK33[d[i]] = 0;
+    return d;
+}
+
+/* 从 1-max 中取 cnt 个不重复数 */
+function pN(max, cnt, mk) {
+    var d = new Array(cnt), c = 0, n;
+    while (c < cnt) {
+        n = 1 + ((Math.random() * max) | 0);
+        if (!mk[n]) { mk[n] = 1; d[c++] = n; }
+    }
+    for (var i = 0; i < cnt; i++) mk[d[i]] = 0;
+    return d;
+}
+
+/* 检查 winRed（6个）是否全部在 boolArr 中为 1 */
+function ai6(w, b) {
+    return b[w[0]] && b[w[1]] && b[w[2]] && b[w[3]] && b[w[4]] && b[w[5]];
+}
+
+self.onmessage = function(e) {
+    var cfg = e.data;
+    var CHUNK = 200000;  // 每个时间切片处理的期数
+    var tot = 0, sec = 0;
+    var bt = cfg.betType, pm = cfg.pickMode;
+
+    /* 预计算固定模式的布尔数组 */
+    var frb  = new Uint8Array(34);  // fixed single red bool
+    var fmr  = new Uint8Array(34);  // fixed multiple red bool
+    var fmb  = new Uint8Array(17);  // fixed multiple blue bool
+    var rmr  = new Uint8Array(34);  // random multiple red bool（复用）
+    var rmb  = new Uint8Array(17);  // random multiple blue bool（复用）
+    var danFlag  = new Uint8Array(34);  // 胆拖：胆码
+    var tuoFlag  = new Uint8Array(34);  // 胆拖：拖码
+    var dtbFlag  = new Uint8Array(17);  // 胆拖：蓝球
+    var danArr, danCount;
+
+    if (bt === 'single' && pm === 'fixed') {
+        var fa = cfg.fixedRedArr;
+        for (var i = 0; i < fa.length; i++) frb[fa[i]] = 1;
+    }
+    if (bt === 'multiple' && pm === 'fixed') {
+        var fra = cfg.fixedMultipleRedArr, fba = cfg.fixedMultipleBlueArr;
+        for (var i = 0; i < fra.length; i++) fmr[fra[i]] = 1;
+        for (var i = 0; i < fba.length; i++) fmb[fba[i]] = 1;
+    }
+    if (bt === 'danTuo') {
+        danArr = cfg.danRedArr;
+        danCount = danArr.length;
+        var tArr = cfg.tuoRedArr, bArr = cfg.danTuoBlueArr;
+        for (var i = 0; i < danArr.length; i++) danFlag[danArr[i]] = 1;
+        for (var i = 0; i < tArr.length; i++) tuoFlag[tArr[i]] = 1;
+        for (var i = 0; i < bArr.length; i++) dtbFlag[bArr[i]] = 1;
+    }
+
+    var fb  = cfg.fixedBlue;
+    var sp  = cfg.singlePerPeriod;
+    var mrc = cfg.multipleRedCount;
+    var mbc = cfg.multipleBlueCount;
+    var gpp = cfg.groupsPerPeriod || 1;
+
+    function runChunk() {
+        var won = false;
+        for (var iter = 0; iter < CHUNK; iter++) {
+            tot++;
+            var wr = p33_6();
+            var wb = 1 + ((Math.random() * 16) | 0);
+            var pr = 0; // 0=没中, 1=一等奖, 2=二等奖
+
+            if (bt === 'single') {
+                if (pm === 'fixed') {
+                    if (ai6(wr, frb)) pr = (wb === fb) ? 1 : 2;
+                } else {
+                    /* 随缘瞎买：每期 sp 张随机单式票 */
+                    for (var t = 0; t < sp && pr < 1; t++) {
+                        var tr = p33_6();
+                        var tb = 1 + ((Math.random() * 16) | 0);
+                        for (var k = 0; k < 6; k++) TICKET_MARK[tr[k]] = 1;
+                        if (ai6(wr, TICKET_MARK)) pr = (tb === wb) ? 1 : 2;
+                        for (var k = 0; k < 6; k++) TICKET_MARK[tr[k]] = 0;
+                    }
+                }
+            } else if (bt === 'multiple') {
+                /* 复式模式 */
+                var rb, bb, rr, bl;
+                if (pm === 'fixed') {
+                    rb = fmr; bb = fmb;
+                    if (ai6(wr, rb)) pr = bb[wb] ? 1 : 2;
+                } else {
+                    /* 随机复式：每期买 gpp 组，任意一组中奖即算赢 */
+                    for (var g = 0; g < gpp && pr < 1; g++) {
+                        rr = pN(33, mrc, MARK33);
+                        bl = pN(16, mbc, MARK16);
+                        for (var k = 0; k < rr.length; k++) rmr[rr[k]] = 1;
+                        for (var k = 0; k < bl.length; k++) rmb[bl[k]] = 1;
+                        if (ai6(wr, rmr)) pr = rmb[wb] ? 1 : 2;
+                        for (var k = 0; k < rr.length; k++) rmr[rr[k]] = 0;
+                        for (var k = 0; k < bl.length; k++) rmb[bl[k]] = 0;
+                    }
+                }
+            } else {
+                /* 胆拖模式：胆码全在开奖红球里，且开奖红球中剩余的都是拖码 */
+                for (var k = 0; k < 6; k++) MARK33[wr[k]] = 1;  // 临时标记开奖红球
+                var allDanIn = true;
+                for (var k = 0; k < danCount; k++) {
+                    if (!MARK33[danArr[k]]) { allDanIn = false; break; }
+                }
+                if (allDanIn) {
+                    var allInDanOrTuo = true;
+                    for (var k = 0; k < 6; k++) {
+                        if (!danFlag[wr[k]] && !tuoFlag[wr[k]]) { allInDanOrTuo = false; break; }
+                    }
+                    if (allInDanOrTuo) pr = dtbFlag[wb] ? 1 : 2;
+                }
+                for (var k = 0; k < 6; k++) MARK33[wr[k]] = 0;  // 重置
+            }
+
+            if (pr === 2) sec++;
+            if (pr === 1) { won = true; break; }
+        }
+
+        if (won || tot >= 500000000) {
+            self.postMessage({ type: 'done', totalPeriods: tot, secondPrizes: sec, capped: tot >= 500000000 && !won });
+        } else {
+            self.postMessage({ type: 'progress', totalPeriods: tot });
+            setTimeout(runChunk, 0);
+        }
+    }
+
+    runChunk();
+};
+`;
+
+/* ── 灵魂评语库 ── */
+const LS_COMMENTS_LUCKY = [
+    '🚀 卧槽！仅仅花了 ${years} 年你就中了！🤯 祖坟冒青烟了吧？建议今天出门不要踩井盖，运气可能透支了。⚡',
+    '🎰 ${years} 年，才花了 ${cost} 元就中了 500 万，净赚 ${earned} 元！🎉 上辈子一定拯救了银河系，这辈子彩票系统向您致敬。🫡',
+    '🌈 恭喜你在 ${years} 年内完成了普通人做梦都难以企及的壮举！🤩 建议立刻再买彩票，因为接下来的 ${restYears} 年可能都没这运气了。😅',
+    '👑 真人真事：有人 ${years} 年买彩票，中了 500 万，扣完税还剩375万。您也做到了！🏆 您是天选之子，是概率学的异类，是数学的叛徒。',
+    '💰 用 ${years} 年换来 500 万，年化收益率远超理财！📈 不过温馨提示：这是奇迹，不是策略，请勿向您的孩子展示此成就并称之为"投资经验"。🙏',
+];
+
+const LS_COMMENTS_LOSE = [
+    '💸 花了 ${years} 年，倒贴了 ${lostMoney} 元才摸到 500 万！😭 如果您从清朝同治年间开始买，现在可能刚刚回本。建议把这笔钱留给您的第 ${generations} 代玄孙去领奖吧。🪦',
+    '💀 ${years} 年啊！😱 您的 ${generations} 代子孙轮番来买，终于中了。您从坟墓里伸出手领到了这张彩票，感受一下这份跨越历史的执念。💔 累计亏损：${lostMoney} 元。',
+    '🥖 如果把您这 ${years} 年的 ${cost} 元换成馒头，叠起来可以从地球到月球绕 ${moonsRound} 圈。🌙 温馨提示：这些馒头至少能吃饱，但彩票不行。🤡',
+    '🧘 您是人类历史上最坚韧的彩票人。💪 ${years} 年，${draws} 期，亏损 ${lostMoney} 元，最终以一种近乎哲学的方式证明了一件事：概率终究会收敛，代价只是您的整个人生。😵‍💫',
+    '😂 ${years} 年后中奖，您的消息传遍了彩票大厅。所有工作人员都哭了，不是因为感动，而是因为您的彩票销售额撑起了他们 ${genCount} 代人的工资。🏦',
+    '🏆 中了！就在 ${years} 年、亏掉 ${lostMoney} 元后！🎊 这时候 500 万是什么概念？已经无法弥补了，但至少您的执念可以入选吉尼斯世界纪录：史上最贵的 500 万。🥇',
+    '🤔 告诉我，是什么让您坚持了 ${years} 年？是信念？是执念？🙃 还是对数学的深刻误解？不管怎样，您终于等到了这一天。😢 享受您净亏 ${lostMoney} 元的胜利吧。',
+    '🏠 ${years} 年买彩票，最终成本 ${cost} 元，中奖 500 万，净亏 ${lostMoney} 元。如果您当年把这些钱全投进房地产……💔 算了，这个假设太残忍，我们不讨论。',
+    '🎯 二等奖中了 ${second} 次，每次差一点儿！🤯 这就是彩票的浪漫：给你无数次"差点儿"，然后用 ${years} 年让你确信自己是天选之人。结局：😭 亏损 ${lostMoney} 元。',
+    '🏃 人生最长的马拉松：${years} 年，${draws} 期，每期怀揣希望，每期落空而归 💔，直到第 ${draws} 期，终于！500 万到手。🎉 可惜您的钱包早在 ${ruinYear} 年就已牺牲。🪦',
+];
+
+/* 模板变量替换 */
+function fillComment(template, vars) {
+    return template.replace(/\$\{(\w+)\}/g, function(_, key) {
+        return key in vars ? vars[key] : ('${' + key + '}');
+    });
+}
+
+/* ── Life-sim 状态 ── */
+let lifeSimState = null;
+let lifeSimWorker = null;
+
+function createLifeSimState() {
+    return {
+        betType: 'single',      // 'single' | 'multiple' | 'danTuo'
+        pickMode: 'random',     // 'fixed' | 'random' (danTuo 时忽略，始终固定)
+        // 执念守号 单式：手动选球（不足6红/1蓝则机选补齐）
+        fixedRed: new Set(),
+        fixedBlue: 0,
+        // 执念守号 复式：自选锚定球，目标数量由下面两字段指定
+        fixedMultipleRed: new Set(),
+        fixedMultipleBlue: new Set(),
+        fixedMultipleTargetRed: 9,    // 复式固定红球目标总数（含自选+机选补齐）
+        fixedMultipleTargetBlue: 1,   // 复式固定蓝球目标总数
+        // 复式随机：红蓝球数量
+        multipleRedCount: 9,
+        multipleBlueCount: 3,
+        // 随缘瞎买 单式：每期注数
+        singlePerPeriod: 5,
+        // 胆拖模式
+        danRed: new Set(),      // 胆码红球 (1-5 个)
+        tuoRed: new Set(),      // 拖码红球
+        danTuoBlue: new Set(),  // 蓝球 (1+ 个)
+        // 每期买几组（复式/胆拖）
+        groupsPerPeriod: 1,
+        // 状态
+        status: 'idle',         // 'idle' | 'running' | 'done'
+        currentPeriods: 0,
+        result: null,
+        error: '',
+        // 模拟开始时固定的票面（fixed/danTuo 模式用于展示）
+        resolvedFixedTicket: null,
+    };
+}
+
+/* 计算每期总注数（已含 groups） */
+function lsTicketCount(st) {
+    const gpp = st.betType !== 'single' ? (st.groupsPerPeriod || 1) : 1;
+    if (st.betType === 'single') {
+        return st.pickMode === 'fixed' ? 1 : st.singlePerPeriod;
+    }
+    if (st.betType === 'danTuo') {
+        const dan = st.danRed.size;
+        const tuo = st.tuoRed.size;
+        const blue = Math.max(1, st.danTuoBlue.size);
+        if (dan < 1 || tuo < (6 - dan)) return 0;
+        return combination(tuo, 6 - dan) * blue * gpp;
+    }
+    // multiple
+    if (st.pickMode === 'fixed') {
+        const rc = st.fixedMultipleTargetRed || 9;
+        const bc = st.fixedMultipleTargetBlue || 1;
+        return combination(rc, 6) * bc * gpp;
+    }
+    return combination(st.multipleRedCount, 6) * st.multipleBlueCount * gpp;
+}
+
+/* 校验配置，返回错误字符串（空字符串=合法） */
+function lsValidate(st) {
+    if (st.betType !== 'single') {
+        if (!Number.isInteger(st.groupsPerPeriod) || st.groupsPerPeriod < 1 || st.groupsPerPeriod > 1000)
+            return '每期组数需在 1 到 1,000 之间。';
+    }
+    const tickets = lsTicketCount(st);
+    if (st.betType === 'danTuo') {
+        if (st.danRed.size < 1) return '请至少选择 1 个胆码红球。';
+        if (st.danRed.size > 5) return '胆码红球最多 5 个。';
+        const need = 6 - st.danRed.size;
+        if (st.tuoRed.size < need) return `已选 ${st.danRed.size} 个胆码，还需至少 ${need} 个拖码红球。`;
+        if (st.danTuoBlue.size < 1) return '请至少选择 1 个蓝球。';
+        if (tickets > 10000) return `胆拖注数 ${tickets.toLocaleString()} 超出上限 10,000 注！请减少拖码/蓝球/组数。`;
+        return '';
+    }
+    if (st.betType === 'multiple') {
+        if (st.pickMode === 'fixed') {
+            const tRed = st.fixedMultipleTargetRed;
+            const tBlue = st.fixedMultipleTargetBlue;
+            if (tRed < 6 || tRed > 33) return '目标红球数量必须在 6 到 33 之间。';
+            if (tBlue < 1 || tBlue > 16) return '目标蓝球数量必须在 1 到 16 之间。';
+        } else {
+            if (st.multipleRedCount < 6 || st.multipleRedCount > 33) return '复式红球数量必须在 6 到 33 之间。';
+            if (st.multipleBlueCount < 1 || st.multipleBlueCount > 16) return '复式蓝球数量必须在 1 到 16 之间。';
+            if (st.multipleRedCount === 6 && st.multipleBlueCount === 1 && st.groupsPerPeriod === 1)
+                return '复式模式下红球6个+蓝球1个等同于单式，请增加球数。';
+        }
+        if (tickets > 10000) return `复式注数 ${tickets.toLocaleString()} 超出单期上限 10,000 注！请减少球数或组数。`;
+        return '';
+    }
+    if (st.betType === 'single' && st.pickMode === 'random') {
+        if (st.singlePerPeriod < 1 || st.singlePerPeriod > 10000) return '每期注数须在 1 到 10,000 之间。';
+    }
+    return '';
+}
+
+/* 格式化大数字 */
+function fmtNum(n) { return Math.round(n).toLocaleString('zh-CN'); }
+
+/* ── 渲染主入口 ── */
+function renderLifeSimPage() {
+    subpageContent.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'ls-wrap';
+
+    if (!lifeSimState || lifeSimState.status === 'idle') {
+        wrap.appendChild(buildLsConfig());
+    } else if (lifeSimState.status === 'running') {
+        wrap.appendChild(buildLsRunning());
+    } else {
+        wrap.appendChild(buildLsDone());
+    }
+    subpageContent.appendChild(wrap);
+}
+
+/* ── 配置面板 ── */
+function buildLsConfig() {
+    const st = lifeSimState;
+    const frag = document.createDocumentFragment();
+
+    // 标题
+    const title = document.createElement('p');
+    title.className = 'ls-title';
+    title.textContent = '这辈子能中500万吗？';
+    frag.appendChild(title);
+    const sub = document.createElement('p');
+    sub.className = 'ls-subtitle';
+    sub.textContent = '双色球一等奖 · 6红+1蓝 · 概率约 1/17,721,088 · 每期2元起';
+    frag.appendChild(sub);
+
+    // ── 投注方式 ──
+    const betLabel = document.createElement('p');
+    betLabel.className = 'ls-section-label';
+    betLabel.textContent = '投注方式';
+    frag.appendChild(betLabel);
+    const betRow = document.createElement('div');
+    betRow.className = 'ls-tab-row';
+    [['single', '单式（每注6红+1蓝）'], ['multiple', '复式（多选）'], ['danTuo', '胆拖（胆码必中）']].forEach(([val, txt]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ls-tab' + (st.betType === val ? ' active' : '');
+        btn.textContent = txt;
+        btn.dataset.lsAction = 'bet-type';
+        btn.dataset.lsVal = val;
+        betRow.appendChild(btn);
+    });
+    frag.appendChild(betRow);
+
+    // ── 选号模式（胆拖始终固定，隐藏此区域）──
+    if (st.betType !== 'danTuo') {
+        const pickLabel = document.createElement('p');
+        pickLabel.className = 'ls-section-label';
+        pickLabel.textContent = '选号模式';
+        frag.appendChild(pickLabel);
+        const pickRow = document.createElement('div');
+        pickRow.className = 'ls-tab-row';
+        [['fixed', '执念守号（固定号码）'], ['random', '随缘瞎买（每期随机）']].forEach(([val, txt]) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'ls-tab' + (st.pickMode === val ? ' active' : '');
+            btn.textContent = txt;
+            btn.dataset.lsAction = 'pick-mode';
+            btn.dataset.lsVal = val;
+            pickRow.appendChild(btn);
+        });
+        frag.appendChild(pickRow);
+    }
+
+    // ── 动态配置区 ──
+    const configArea = document.createElement('div');
+    configArea.className = 'ls-config-area';
+
+    if (st.betType === 'single' && st.pickMode === 'fixed') {
+        // 手动选 6 红 + 1 蓝
+        configArea.appendChild(buildLsBallPicker('red-ball', '选红球（可不选，机器补齐至6个）', 33, st.fixedRed, 6, 'pick-red'));
+        configArea.appendChild(buildLsBallPicker('blue-ball', '选蓝球（可不选，机器自动随机选1个）', 16, st.fixedBlue === 0 ? new Set() : new Set([st.fixedBlue]), 1, 'pick-blue'));
+    } else if (st.betType === 'single' && st.pickMode === 'random') {
+        // 每期注数输入
+        const row = document.createElement('div');
+        row.className = 'ls-number-row';
+        const lbl = document.createElement('span');
+        lbl.className = 'ls-number-label';
+        lbl.textContent = '每期买几注：';
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.className = 'ls-number-input';
+        inp.min = '1';
+        inp.max = '10000';
+        inp.value = st.singlePerPeriod;
+        inp.dataset.lsField = 'singlePerPeriod';
+        const hint = document.createElement('span');
+        hint.className = 'ls-number-hint';
+        hint.textContent = '（最多10,000注 / 期）';
+        row.appendChild(lbl);
+        row.appendChild(inp);
+        row.appendChild(hint);
+        configArea.appendChild(row);
+    } else if (st.betType === 'multiple' && st.pickMode === 'fixed') {
+        // 复式执念守号：目标数量 + 自选锚定球（不足由机器补）
+        const tRed = st.fixedMultipleTargetRed, tBlue = st.fixedMultipleTargetBlue;
+        const fixedNote = document.createElement('p');
+        fixedNote.style.cssText = 'font-size:.8rem;color:#8888aa;margin:0 0 10px;';
+        fixedNote.textContent = '先设好目标球数，再选你想"锁定"的号码，其余由机器随机补满。';
+        configArea.appendChild(fixedNote);
+        // 目标数量输入
+        [['目标红球数量：', 'fixedMultipleTargetRed', 6, 33, tRed, '（6–33，将补满至此数）'],
+         ['目标蓝球数量：', 'fixedMultipleTargetBlue', 1, 16, tBlue, '（1–16）']
+        ].forEach(([lbTxt, field, min, max, val, hint]) => {
+            const row = document.createElement('div');
+            row.className = 'ls-number-row';
+            const lbl = document.createElement('span');
+            lbl.className = 'ls-number-label';
+            lbl.textContent = lbTxt;
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.className = 'ls-number-input';
+            inp.min = String(min);
+            inp.max = String(max);
+            inp.value = val;
+            inp.dataset.lsField = field;
+            const hintEl = document.createElement('span');
+            hintEl.className = 'ls-number-hint';
+            hintEl.textContent = hint;
+            row.appendChild(lbl);
+            row.appendChild(inp);
+            row.appendChild(hintEl);
+            configArea.appendChild(row);
+        });
+        // 锚定选球（限制不超过目标数）
+        configArea.appendChild(buildLsBallPicker('red-ball',
+            `锁定红球（已选 ${st.fixedMultipleRed.size}/${tRed}，其余机选补至 ${tRed} 个）`,
+            33, st.fixedMultipleRed, tRed, 'pick-multiple-red'));
+        configArea.appendChild(buildLsBallPicker('blue-ball',
+            `锁定蓝球（已选 ${st.fixedMultipleBlue.size}/${tBlue}，其余机选补至 ${tBlue} 个）`,
+            16, st.fixedMultipleBlue, tBlue, 'pick-multiple-blue'));
+    } else if (st.betType === 'multiple' && st.pickMode === 'random') {
+        // 复式随机：红蓝球数量
+        [[' 红球数量（≥6）：', 'multipleRedCount', 6, 33, st.multipleRedCount],
+         ['蓝球数量（≥1）：', 'multipleBlueCount', 1, 16, st.multipleBlueCount]
+        ].forEach(([lbTxt, field, min, max, val]) => {
+            const row = document.createElement('div');
+            row.className = 'ls-number-row';
+            const lbl = document.createElement('span');
+            lbl.className = 'ls-number-label';
+            lbl.textContent = lbTxt;
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.className = 'ls-number-input';
+            inp.min = String(min);
+            inp.max = String(max);
+            inp.value = val;
+            inp.dataset.lsField = field;
+            const hint = document.createElement('span');
+            hint.className = 'ls-number-hint';
+            hint.textContent = `(${min}–${max})`;
+            row.appendChild(lbl);
+            row.appendChild(inp);
+            row.appendChild(hint);
+            configArea.appendChild(row);
+        });
+    } else if (st.betType === 'danTuo') {
+        // 胆拖配置：胆码+拖码红球 + 蓝球
+        configArea.appendChild(buildLsDanTuoRedPicker());
+        configArea.appendChild(buildLsBallPicker('blue-ball',
+            `选蓝球（已选 ${st.danTuoBlue.size} 个，至少1个）`,
+            16, st.danTuoBlue, 16, 'pick-dantuo-blue'));
+    }
+    // ── 每期几组（复式/胆拖）──
+    if (st.betType !== 'single') {
+        const gRow = document.createElement('div');
+        gRow.className = 'ls-number-row';
+        const gLbl = document.createElement('span');
+        gLbl.className = 'ls-number-label';
+        gLbl.textContent = '每期买几组：';
+        const gInp = document.createElement('input');
+        gInp.type = 'number';
+        gInp.className = 'ls-number-input';
+        gInp.min = '1';
+        gInp.max = '1000';
+        gInp.value = st.groupsPerPeriod;
+        gInp.dataset.lsField = 'groupsPerPeriod';
+        const gHint = document.createElement('span');
+        gHint.className = 'ls-number-hint';
+        gHint.textContent = st.betType === 'danTuo' || st.pickMode === 'fixed'
+            ? '（固定守号买多组，每组同样号码，增加花费但不提升中奖概率）'
+            : '（每期买多组随机号码，注意总注数上限 10,000）';
+        gRow.appendChild(gLbl);
+        gRow.appendChild(gInp);
+        gRow.appendChild(gHint);
+        configArea.appendChild(gRow);
+    }
+    frag.appendChild(configArea);
+
+    // ── 统计信息条 ──
+    const tickets = lsTicketCount(st);
+    const costPerPeriod = tickets * 2;
+    const infoBar = document.createElement('div');
+    infoBar.className = 'ls-info-bar';
+    let infoItems;
+    if (st.betType === 'danTuo') {
+        const dan = st.danRed.size, tuo = st.tuoRed.size;
+        infoItems = [
+            ['胆码红球', dan ? dan + ' 个' : '未选'],
+            ['拖码红球', tuo ? tuo + ' 个' : '未选'],
+            ['每期注数', tickets === 0 ? '配置未完成' : (tickets > 10000 ? '超限！' : fmtNum(tickets) + ' 注')],
+            ['每期花费', tickets === 0 ? '--' : (costPerPeriod > 20000 ? '超限！' : '¥' + fmtNum(costPerPeriod))],
+        ];
+    } else if (st.betType === 'multiple') {
+        const perGroup = Math.round(tickets / (st.groupsPerPeriod || 1));
+        infoItems = [
+            ['每组注数', perGroup > 0 ? fmtNum(perGroup) + ' 注' : '配置未完成'],
+            ['购买组数', fmtNum(st.groupsPerPeriod || 1) + ' 组'],
+            ['每期总注数', tickets > 10000 ? '超限！' : fmtNum(tickets) + ' 注'],
+            ['每期总花费', costPerPeriod > 20000 ? '超限！' : '¥' + fmtNum(costPerPeriod)],
+        ];
+    } else {
+        infoItems = [
+            ['每期注数', tickets > 10000 ? '超限！' : fmtNum(tickets) + ' 注'],
+            ['每期花费', costPerPeriod > 20000 ? '超限！' : '¥' + fmtNum(costPerPeriod)],
+            ['开奖频次', '每周3期 / 年156期'],
+            ['一等奖概率', tickets === 0 ? '--' : '约 1/' + fmtNum(Math.round(17721088 / tickets))],
+        ];
+    }
+    infoItems.forEach(([k, v]) => {
+        const item = document.createElement('div');
+        item.className = 'ls-info-item';
+        const key = document.createElement('span');
+        key.className = 'ls-info-key';
+        key.textContent = k;
+        const val = document.createElement('span');
+        val.className = 'ls-info-val';
+        if (v.startsWith('超限') || v === '配置未完成') val.style.color = '#ff4444';
+        val.textContent = v;
+        item.appendChild(key);
+        item.appendChild(val);
+        infoBar.appendChild(item);
+    });
+    frag.appendChild(infoBar);
+
+    // ── 错误提示 ──
+    if (st.error) {
+        const err = document.createElement('div');
+        err.className = 'ls-error';
+        err.textContent = st.error;
+        frag.appendChild(err);
+    }
+
+    // ── 开始按钮 ──
+    const startBtn = document.createElement('button');
+    startBtn.type = 'button';
+    startBtn.className = 'ls-start-btn';
+    startBtn.textContent = '开始模拟一生 →';
+    startBtn.dataset.lsAction = 'start';
+    frag.appendChild(startBtn);
+
+    return frag;
+}
+
+/* 胆拖红球三态选择器（未选 → 胆 → 拖 → 未选） */
+function buildLsDanTuoRedPicker() {
+    const st = lifeSimState;
+    const wrap = document.createElement('div');
+    wrap.className = 'ls-ball-picker';
+
+    const lbl = document.createElement('p');
+    lbl.className = 'ls-ball-picker-title';
+    lbl.innerHTML = `点一次 = <b style="color:#c07000">胆码</b>，再点 = <b style="color:#3060cc">拖码</b>，再点取消&ensp;·&ensp;胆 <b>${st.danRed.size}</b>/5 个 &ensp; 拖 <b>${st.tuoRed.size}</b> 个`;
+    wrap.appendChild(lbl);
+
+    const grid = document.createElement('div');
+    grid.className = 'ls-ball-grid';
+    for (let i = 1; i <= 33; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isDan = st.danRed.has(i);
+        const isTuo = st.tuoRed.has(i);
+        btn.className = 'ls-ball red-ball' + (isDan ? ' ls-dan' : isTuo ? ' ls-tuo' : '');
+        btn.textContent = String(i).padStart(2, '0');
+        btn.dataset.lsAction = 'pick-dantuo-red';
+        btn.dataset.lsNum = i;
+        btn.title = isDan ? '胆码（再点→拖码）' : isTuo ? '拖码（再点→取消）' : '点击设为胆码';
+        grid.appendChild(btn);
+    }
+    wrap.appendChild(grid);
+
+    // 说明提示
+    const hint = document.createElement('p');
+    hint.className = 'ls-number-hint';
+    hint.style.marginTop = '8px';
+    hint.textContent = '胆码必须全部出现在开奖号里；拖码从中选取不足的球位组成完整一注。';
+    wrap.appendChild(hint);
+
+    return wrap;
+}
+
+/* 构建球选择器 */
+function buildLsBallPicker(colorClass, labelText, max, selectedSet, limit, actionOverride) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ls-ball-picker';
+    const lbl = document.createElement('p');
+    lbl.className = 'ls-ball-picker-title';
+    lbl.textContent = labelText;
+    wrap.appendChild(lbl);
+    const grid = document.createElement('div');
+    grid.className = 'ls-ball-grid';
+    for (let i = 1; i <= max; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ls-ball ' + colorClass + (selectedSet.has(i) ? ' active' : '');
+        btn.textContent = String(i).padStart(2, '0');
+        btn.dataset.lsAction = actionOverride || (colorClass === 'red-ball' ? 'pick-red' : 'pick-blue');
+        btn.dataset.lsNum = i;
+        grid.appendChild(btn);
+    }
+    wrap.appendChild(grid);
+    return wrap;
+}
+
+function buildLsRunning() {
+    const st = lifeSimState;
+    const frag = document.createDocumentFragment();
+
+    const runDiv = document.createElement('div');
+    runDiv.className = 'ls-running';
+
+    const lbl = document.createElement('p');
+    lbl.className = 'ls-running-label';
+    lbl.textContent = '时光飞逝 · 模拟进行中…';
+    runDiv.appendChild(lbl);
+
+    const yearDisplay = document.createElement('div');
+    yearDisplay.className = 'ls-year-display';
+    const years = Math.floor(st.currentPeriods / 156);
+    const yearNum = document.createElement('span');
+    yearNum.className = 'ls-year-number';
+    yearNum.id = 'lsYearNumber';
+    yearNum.textContent = fmtNum(years);
+    const yearUnit = document.createElement('span');
+    yearUnit.className = 'ls-year-unit';
+    yearUnit.textContent = '年';
+    yearDisplay.appendChild(yearNum);
+    yearDisplay.appendChild(yearUnit);
+    runDiv.appendChild(yearDisplay);
+
+    const periodEl = document.createElement('p');
+    periodEl.className = 'ls-period-counter';
+    periodEl.id = 'lsPeriodCounter';
+    periodEl.textContent = '已开奖 ' + fmtNum(st.currentPeriods) + ' 期';
+    runDiv.appendChild(periodEl);
+
+    const bar = document.createElement('div');
+    bar.className = 'ls-progress-bar';
+    const fill = document.createElement('div');
+    fill.className = 'ls-progress-fill';
+    bar.appendChild(fill);
+    runDiv.appendChild(bar);
+
+    frag.appendChild(runDiv);
+    return frag;
+}
+
+/* ── 结算结果面板 ── */
+function buildLsDone() {
+    const st = lifeSimState;
+    const r = st.result;
+    // 用一个 flex 容器统一控制间距
+    const container = document.createElement('div');
+    container.className = 'ls-result-done';
+
+    const tickets = lsTicketCount(st);
+    const costPerPeriod = tickets * 2;
+    const totalCost = r.totalPeriods * costPerPeriod;
+    const totalWin = 5000000 + r.secondPrizes * 500000;
+    const netProfit = totalWin - totalCost;
+    const totalYears = r.totalPeriods / 156;
+    const years = Math.floor(totalYears);
+    const months = Math.round((totalYears - years) * 12);
+    const generations = Math.ceil(years / 30);
+    const ruinYear = Math.floor(r.totalPeriods * 0.1 / 156); // "前10%时期"就开始亏了
+    const moonsRound = Math.round(totalCost / 2 / 384400000 * 0.1); // 比喻
+
+    // 评语变量
+    const commentVars = {
+        years: fmtNum(years),
+        cost: '¥' + fmtNum(totalCost),
+        lostMoney: '¥' + fmtNum(Math.abs(netProfit)),
+        earned: '¥' + fmtNum(netProfit),
+        draws: fmtNum(r.totalPeriods),
+        second: fmtNum(r.secondPrizes),
+        generations: fmtNum(generations),
+        genCount: fmtNum(generations),
+        ruinYear: fmtNum(ruinYear),
+        restYears: fmtNum(Math.max(0, 80 - years)),
+        moonsRound: fmtNum(Math.max(1, moonsRound)),
+    };
+
+    // 选评语
+    const isLucky = netProfit > 0 && years <= 50;
+    const pool = isLucky ? LS_COMMENTS_LUCKY : LS_COMMENTS_LOSE;
+    const comment = fillComment(pool[Math.floor(Math.random() * pool.length)], commentVars);
+
+    // ── 顶部 Banner ──
+    const banner = document.createElement('div');
+    banner.className = 'ls-result ls-result-banner';
+    const emoji = document.createElement('div');
+    emoji.className = 'ls-result-banner-emoji';
+    emoji.textContent = r.capped ? '😵' : (isLucky ? '🎉' : '💸');
+    const bTitle = document.createElement('div');
+    bTitle.className = 'ls-result-banner-title';
+    if (r.capped) {
+        bTitle.textContent = '宇宙都等不及了，模拟器也放弃你了……';
+    } else {
+        bTitle.textContent = `历经 ${fmtNum(years)} 年 ${months} 个月，一共 ${fmtNum(r.totalPeriods)} 期，你终于中奖了${isLucky ? '！' : '，但是代价是……'}`;
+    }
+    const bSub = document.createElement('div');
+    bSub.className = 'ls-result-banner-sub';
+    bSub.textContent = r.capped ? '已超过5亿期安全上限，系统强制停止。' : '';
+    banner.appendChild(emoji);
+    banner.appendChild(bTitle);
+    if (r.capped) banner.appendChild(bSub);
+    container.appendChild(banner);
+
+    // ── 数据卡片网格 ──
+    const grid = document.createElement('div');
+    grid.className = 'ls-result-grid';
+
+    function makeCard(label, mainText, colorClass, subText) {
+        const card = document.createElement('div');
+        card.className = 'ls-result-card';
+        const lbl = document.createElement('div');
+        lbl.className = 'ls-result-card-label';
+        lbl.textContent = label;
+        const main = document.createElement('div');
+        main.className = 'ls-result-card-main ' + colorClass;
+        main.textContent = mainText;
+        const sub = document.createElement('div');
+        sub.className = 'ls-result-card-sub';
+        sub.textContent = subText;
+        card.appendChild(lbl);
+        card.appendChild(main);
+        card.appendChild(sub);
+        return card;
+    }
+
+    grid.appendChild(makeCard('累计开奖期数', fmtNum(r.totalPeriods) + ' 期', 'cyan',
+        `${fmtNum(years)} 年 ${months} 个月 / 跨越 ${fmtNum(generations)} 代人`));
+    grid.appendChild(makeCard('累计投入本金', '¥' + fmtNum(totalCost), 'yellow',
+        `每期 ¥${fmtNum(costPerPeriod)}，共 ${fmtNum(r.totalPeriods)} 期`));
+    grid.appendChild(makeCard('累计中奖金额', '¥' + fmtNum(totalWin), 'green',
+        `一等奖 ¥500万 + 二等奖×${fmtNum(r.secondPrizes)} 共 ¥${fmtNum(r.secondPrizes * 500000)}`));
+    grid.appendChild(makeCard('二等奖次数', fmtNum(r.secondPrizes) + ' 次', 'cyan',
+        '6红全中但蓝球落空，每次差一点点……'));
+    container.appendChild(grid);
+
+    // ── 大盈亏显示 ──
+    if (netProfit < 0) {
+        const lossDiv = document.createElement('div');
+        lossDiv.className = 'ls-loss-display';
+        const lossLbl = document.createElement('div');
+        lossLbl.className = 'ls-loss-label';
+        lossLbl.textContent = '💀 净亏损金额（血泪教训）';
+        const lossAmt = document.createElement('div');
+        lossAmt.className = 'ls-loss-amount';
+        lossAmt.textContent = '-¥' + fmtNum(Math.abs(netProfit));
+        lossDiv.appendChild(lossLbl);
+        lossDiv.appendChild(lossAmt);
+        container.appendChild(lossDiv);
+    } else {
+        const profDiv = document.createElement('div');
+        profDiv.className = 'ls-profit-display';
+        const profLbl = document.createElement('div');
+        profLbl.className = 'ls-profit-label';
+        profLbl.textContent = '🚀 净盈利（天命之人！）';
+        const profAmt = document.createElement('div');
+        profAmt.className = 'ls-profit-amount';
+        profAmt.textContent = '+¥' + fmtNum(netProfit);
+        profDiv.appendChild(profLbl);
+        profDiv.appendChild(profAmt);
+        container.appendChild(profDiv);
+    }
+
+    // ── 中奖号码展示（固定/胆拖模式） ──
+    if (st.resolvedFixedTicket) {
+        const tk = st.resolvedFixedTicket;
+        const ticketDiv = document.createElement('div');
+        ticketDiv.className = 'ls-fixed-ticket';
+        if (tk.isDanTuo) {
+            // 胆拖展示
+            ticketDiv.innerHTML = '<span>本次胆拖：</span>';
+            const ballRow = document.createElement('div');
+            ballRow.className = 'ls-winning-ticket';
+            ballRow.style.marginTop = '6px';
+            const danLbl = document.createElement('span');
+            danLbl.style.cssText = 'font-size:.72rem;color:#c07000;margin-right:4px;';
+            danLbl.textContent = '胆';
+            ballRow.appendChild(danLbl);
+            tk.dan.forEach(n => {
+                const b = document.createElement('span');
+                b.className = 'ls-wball red ls-dan';
+                b.textContent = String(n).padStart(2, '0');
+                ballRow.appendChild(b);
+            });
+            const sep1 = document.createElement('span');
+            sep1.style.cssText = 'color:#888;font-size:.8rem;margin:0 6px;';
+            sep1.textContent = '拖';
+            ballRow.appendChild(sep1);
+            tk.tuo.forEach(n => {
+                const b = document.createElement('span');
+                b.className = 'ls-wball red ls-tuo';
+                b.textContent = String(n).padStart(2, '0');
+                ballRow.appendChild(b);
+            });
+            const sep2 = document.createElement('span');
+            sep2.style.cssText = 'color:#444;font-size:.8rem;margin:0 4px;';
+            sep2.textContent = '＋';
+            ballRow.appendChild(sep2);
+            tk.blue.forEach(n => {
+                const b = document.createElement('span');
+                b.className = 'ls-wball blue';
+                b.textContent = String(n).padStart(2, '0');
+                ballRow.appendChild(b);
+            });
+            ticketDiv.appendChild(ballRow);
+        } else {
+            // 单式 / 复式固定展示
+            ticketDiv.innerHTML = '<span>' + (tk.isMultiple ? '本次复式守号：' : '本次守号：') + '</span>';
+            const ballRow = document.createElement('div');
+            ballRow.className = 'ls-winning-ticket';
+            ballRow.style.marginTop = '6px';
+            tk.red.forEach(n => {
+                const b = document.createElement('span');
+                b.className = 'ls-wball red';
+                b.textContent = String(n).padStart(2, '0');
+                ballRow.appendChild(b);
+            });
+            const sep = document.createElement('span');
+            sep.style.cssText = 'color:#444;font-size:.8rem;';
+            sep.textContent = '＋';
+            ballRow.appendChild(sep);
+            const blueNums = Array.isArray(tk.blue) ? tk.blue : [tk.blue];
+            blueNums.forEach(n => {
+                const bb = document.createElement('span');
+                bb.className = 'ls-wball blue';
+                bb.textContent = String(n).padStart(2, '0');
+                ballRow.appendChild(bb);
+            });
+            ticketDiv.appendChild(ballRow);
+        }
+        container.appendChild(ticketDiv);
+    }
+
+    // ── 灵魂评语 ──
+    const commentDiv = document.createElement('div');
+    commentDiv.className = 'ls-comment';
+    const commentText = document.createElement('p');
+    commentText.className = 'ls-comment-text';
+    commentText.textContent = comment;
+    commentDiv.appendChild(commentText);
+    container.appendChild(commentDiv);
+
+    // ── 再来一次 ──
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'ls-retry-btn';
+    retryBtn.textContent = '↺  重新配置，再赌一次人生';
+    retryBtn.dataset.lsAction = 'retry';
+    container.appendChild(retryBtn);
+
+    return container;
+}
+
+/* ── 启动模拟 ── */
+function startLifeSim() {
+    const st = lifeSimState;
+    const err = lsValidate(st);
+    if (err) {
+        st.error = err;
+        renderLifeSimPage();
+        return;
+    }
+    st.error = '';
+
+    // 构建 Worker 配置数据
+    const cfg = {
+        betType: st.betType,
+        pickMode: st.pickMode,
+        singlePerPeriod: st.singlePerPeriod,
+        multipleRedCount: st.multipleRedCount,
+        multipleBlueCount: st.multipleBlueCount,
+        groupsPerPeriod: st.groupsPerPeriod || 1,
+        fixedRedArr: [],
+        fixedBlue: 0,
+        fixedMultipleRedArr: [],
+        fixedMultipleBlueArr: [],
+        danRedArr: [],
+        tuoRedArr: [],
+        danTuoBlueArr: [],
+    };
+
+    // 机选补齐 / 整理固定号码
+    if (st.betType === 'single' && st.pickMode === 'fixed') {
+        const neededRed = 6 - st.fixedRed.size;
+        const extraRed = neededRed > 0 ? drawRemaining(33, [...st.fixedRed], neededRed) : [];
+        cfg.fixedRedArr = sortAsc([...st.fixedRed, ...extraRed]);
+        cfg.fixedBlue = st.fixedBlue || (Math.floor(Math.random() * 16) + 1);
+        st.resolvedFixedTicket = { red: cfg.fixedRedArr, blue: cfg.fixedBlue };
+    } else if (st.betType === 'multiple' && st.pickMode === 'fixed') {
+        // 用目标数量补齐（用户自选球 + 机选补满至 targetRed/Blue）
+        const selRed = [...st.fixedMultipleRed];
+        const selBlue = [...st.fixedMultipleBlue];
+        const tRed = st.fixedMultipleTargetRed || 9;
+        const tBlue = st.fixedMultipleTargetBlue || 1;
+        const extraRed = tRed > selRed.length ? drawRemaining(33, selRed, tRed - selRed.length) : [];
+        const extraBlue = tBlue > selBlue.length ? drawRemaining(16, selBlue, tBlue - selBlue.length) : [];
+        cfg.fixedMultipleRedArr = sortAsc([...selRed, ...extraRed].slice(0, tRed));
+        cfg.fixedMultipleBlueArr = sortAsc([...selBlue, ...extraBlue].slice(0, tBlue));
+        cfg.multipleRedCount = cfg.fixedMultipleRedArr.length;
+        cfg.multipleBlueCount = cfg.fixedMultipleBlueArr.length;
+        st.resolvedFixedTicket = { red: cfg.fixedMultipleRedArr, blue: cfg.fixedMultipleBlueArr, isMultiple: true };
+    } else if (st.betType === 'danTuo') {
+        cfg.danRedArr = sortAsc([...st.danRed]);
+        cfg.tuoRedArr = sortAsc([...st.tuoRed]);
+        cfg.danTuoBlueArr = sortAsc([...st.danTuoBlue]);
+        st.resolvedFixedTicket = { dan: cfg.danRedArr, tuo: cfg.tuoRedArr, blue: cfg.danTuoBlueArr, isDanTuo: true };
+    }
+
+    // 清理旧 worker
+    if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
+
+    // 创建 Blob URL Worker
+    const blob = new Blob([LIFE_SIM_WORKER_SRC], { type: 'text/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    lifeSimWorker = new Worker(workerUrl);
+    URL.revokeObjectURL(workerUrl);
+
+    lifeSimWorker.onmessage = function(e) {
+        const data = e.data;
+        if (data.type === 'progress') {
+            // 增量更新：直接修改 DOM 避免整体重渲
+            lifeSimState.currentPeriods = data.totalPeriods;
+            const yearEl = document.getElementById('lsYearNumber');
+            const periodEl = document.getElementById('lsPeriodCounter');
+            if (yearEl) yearEl.textContent = fmtNum(Math.floor(data.totalPeriods / 156));
+            if (periodEl) periodEl.textContent = '已开奖 ' + fmtNum(data.totalPeriods) + ' 期';
+        } else if (data.type === 'done') {
+            lifeSimWorker.terminate();
+            lifeSimWorker = null;
+            lifeSimState.status = 'done';
+            lifeSimState.result = data;
+            renderLifeSimPage();
+        }
+    };
+
+    lifeSimWorker.onerror = function(err) {
+        lifeSimState.status = 'idle';
+        lifeSimState.error = 'Worker 发生错误：' + err.message;
+        renderLifeSimPage();
+    };
+
+    st.status = 'running';
+    st.currentPeriods = 0;
+    renderLifeSimPage();
+    lifeSimWorker.postMessage(cfg);
+}
+
+/* ── life-sim 路由已在上方的 openSubpage 中直接处理 ── */
+
+/* ── 事件委托：life-sim 专用 ── */
+subpageContent.addEventListener('click', function(e) {
+    if (!lifeSimState) return;
+
+    const action = e.target.dataset.lsAction || (e.target.closest('[data-ls-action]') || {}).dataset?.lsAction;
+    if (!action) return;
+
+    const el = e.target.dataset.lsAction ? e.target : e.target.closest('[data-ls-action]');
+
+    if (action === 'bet-type') {
+        if (lifeSimState.status === 'running') return;
+        lifeSimState.betType = el.dataset.lsVal;
+        lifeSimState.error = '';
+        renderLifeSimPage();
+    } else if (action === 'pick-mode') {
+        if (lifeSimState.status === 'running') return;
+        lifeSimState.pickMode = el.dataset.lsVal;
+        lifeSimState.error = '';
+        renderLifeSimPage();
+    } else if (action === 'pick-red') {
+        if (lifeSimState.status === 'running') return;
+        const n = parseInt(el.dataset.lsNum, 10);
+        if (lifeSimState.fixedRed.has(n)) {
+            lifeSimState.fixedRed.delete(n);
+        } else if (lifeSimState.fixedRed.size < 6) {
+            lifeSimState.fixedRed.add(n);
+        }
+        renderLifeSimPage();
+    } else if (action === 'pick-blue') {
+        if (lifeSimState.status === 'running') return;
+        const n = parseInt(el.dataset.lsNum, 10);
+        lifeSimState.fixedBlue = lifeSimState.fixedBlue === n ? 0 : n;
+        renderLifeSimPage();
+    } else if (action === 'pick-multiple-red') {
+        if (lifeSimState.status === 'running') return;
+        const n = parseInt(el.dataset.lsNum, 10);
+        if (lifeSimState.fixedMultipleRed.has(n)) lifeSimState.fixedMultipleRed.delete(n);
+        else if (lifeSimState.fixedMultipleRed.size < lifeSimState.fixedMultipleTargetRed) lifeSimState.fixedMultipleRed.add(n);
+        renderLifeSimPage();
+    } else if (action === 'pick-multiple-blue') {
+        if (lifeSimState.status === 'running') return;
+        const n = parseInt(el.dataset.lsNum, 10);
+        if (lifeSimState.fixedMultipleBlue.has(n)) lifeSimState.fixedMultipleBlue.delete(n);
+        else if (lifeSimState.fixedMultipleBlue.size < lifeSimState.fixedMultipleTargetBlue) lifeSimState.fixedMultipleBlue.add(n);
+        renderLifeSimPage();
+    } else if (action === 'pick-dantuo-red') {
+        if (lifeSimState.status === 'running') return;
+        const n = parseInt(el.dataset.lsNum, 10);
+        const inDan = lifeSimState.danRed.has(n);
+        const inTuo = lifeSimState.tuoRed.has(n);
+        if (inDan) {
+            // 胆 → 拖
+            lifeSimState.danRed.delete(n);
+            lifeSimState.tuoRed.add(n);
+        } else if (inTuo) {
+            // 拖 → 取消
+            lifeSimState.tuoRed.delete(n);
+        } else {
+            // 未选 → 胆（胆满则直接设为拖）
+            if (lifeSimState.danRed.size < 5) lifeSimState.danRed.add(n);
+            else lifeSimState.tuoRed.add(n);
+        }
+        renderLifeSimPage();
+    } else if (action === 'pick-dantuo-blue') {
+        if (lifeSimState.status === 'running') return;
+        const n = parseInt(el.dataset.lsNum, 10);
+        if (lifeSimState.danTuoBlue.has(n)) lifeSimState.danTuoBlue.delete(n);
+        else lifeSimState.danTuoBlue.add(n);
+        renderLifeSimPage();
+    } else if (action === 'start') {
+        if (lifeSimState.status === 'running') return;
+        startLifeSim();
+    } else if (action === 'retry') {
+        if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
+        lifeSimState.status = 'idle';
+        lifeSimState.result = null;
+        lifeSimState.error = '';
+        lifeSimState.currentPeriods = 0;
+        lifeSimState.resolvedFixedTicket = null;
+        renderLifeSimPage();
+    }
+}, true); // 使用捕获阶段，避免与现有冒泡监听器冲突
+
+/* 监听 life-sim 数字输入框变化 */
+subpageContent.addEventListener('change', function(e) {
+    if (!lifeSimState || lifeSimState.status === 'running') return;
+    const field = e.target.dataset.lsField;
+    if (!field) return;
+    const val = parseInt(e.target.value, 10);
+    if (isNaN(val)) return;
+    if (field === 'singlePerPeriod') lifeSimState.singlePerPeriod = Math.min(10000, Math.max(1, val));
+    else if (field === 'multipleRedCount') lifeSimState.multipleRedCount = Math.min(33, Math.max(6, val));
+    else if (field === 'multipleBlueCount') lifeSimState.multipleBlueCount = Math.min(16, Math.max(1, val));
+    else if (field === 'fixedMultipleTargetRed') {
+        lifeSimState.fixedMultipleTargetRed = Math.min(33, Math.max(6, val));
+        // 超出目标数量的已选球自动移除
+        if (lifeSimState.fixedMultipleRed.size > lifeSimState.fixedMultipleTargetRed) {
+            const arr = sortAsc([...lifeSimState.fixedMultipleRed]).slice(0, lifeSimState.fixedMultipleTargetRed);
+            lifeSimState.fixedMultipleRed = new Set(arr);
+        }
+    }
+    else if (field === 'fixedMultipleTargetBlue') {
+        lifeSimState.fixedMultipleTargetBlue = Math.min(16, Math.max(1, val));
+        if (lifeSimState.fixedMultipleBlue.size > lifeSimState.fixedMultipleTargetBlue) {
+            const arr = sortAsc([...lifeSimState.fixedMultipleBlue]).slice(0, lifeSimState.fixedMultipleTargetBlue);
+            lifeSimState.fixedMultipleBlue = new Set(arr);
+        }
+    }
+    else if (field === 'groupsPerPeriod') lifeSimState.groupsPerPeriod = Math.min(1000, Math.max(1, val));
+    lifeSimState.error = '';
+    renderLifeSimPage();
+}, true);
+
