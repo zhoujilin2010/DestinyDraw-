@@ -1304,3 +1304,409 @@ body {
     background: radial-gradient(circle at 35% 35%, #4488ff, #1144bb);
     box-shadow: 0 0 8px rgba(51,102,255,0.4);
 }
+
+/* ══════════════════════════════════════════════════════
+   错过100万了吗 —— 历史对比器
+   ══════════════════════════════════════════════════════ */
+
+.miss-select {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* 游戏/玩法切换 Tab */
+.miss-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.miss-tab {
+    padding: 8px 20px;
+    border: 1.5px solid #d0d0e8;
+    border-radius: 99px;
+    background: transparent;
+    color: #666;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+}
+
+.miss-tab:hover {
+    border-color: #7060cc;
+    color: #5040bb;
+}
+
+.miss-tab.active {
+    background: linear-gradient(135deg, #6450e0, #3bb4e0);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(100, 80, 220, 0.35);
+}
+
+/* 验证提示 */
+.miss-hint {
+    font-size: 0.82rem;
+    color: #cc6600;
+    background: rgba(255, 160, 0, 0.08);
+    border: 1px solid rgba(255, 160, 0, 0.25);
+    border-radius: 8px;
+    padding: 9px 14px;
+    margin: 0;
+}
+
+/* 球禁用态（已选满时其余球） */
+.ls-ball.miss-blocked {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* 加载中 */
+.miss-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    gap: 20px;
+}
+
+.miss-spinner {
+    width: 44px;
+    height: 44px;
+    border: 4px solid #e8e8f2;
+    border-top-color: #6450e0;
+    border-radius: 50%;
+    animation: miss-spin 0.8s linear infinite;
+}
+
+@keyframes miss-spin {
+    to { transform: rotate(360deg); }
+}
+
+.miss-loading-text {
+    font-size: 0.88rem;
+    color: #aaaacc;
+    letter-spacing: 0.06em;
+}
+
+/* 错误状态 */
+.miss-error {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 10px 0;
+}
+
+.miss-error-icon {
+    font-size: 2.8rem;
+    text-align: center;
+}
+
+.miss-error-msg {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #cc2222;
+    text-align: center;
+    line-height: 1.6;
+}
+
+.miss-error-tip {
+    font-size: 0.78rem;
+    color: #9090a8;
+    background: #f7f7fd;
+    border: 1px solid #e8e8f2;
+    border-radius: 10px;
+    padding: 12px 16px;
+    line-height: 1.7;
+}
+
+/* 结果区节标题 */
+.miss-section-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #aaaacc;
+    margin-bottom: 12px;
+}
+
+/* 奖级汇总表 */
+.miss-table-wrap {
+    background: #f7f7fd;
+    border: 1px solid #e8e8f2;
+    border-radius: 14px;
+    padding: 16px 18px;
+}
+
+.miss-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+
+.miss-table th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #aaaacc;
+    padding-bottom: 10px;
+    font-weight: 600;
+}
+
+.miss-table td {
+    padding: 7px 0;
+    color: #333;
+    border-top: 1px solid #ebebf5;
+}
+
+.miss-table td:nth-child(2) {
+    text-align: center;
+}
+
+/* 奖级徽章 */
+.miss-prize-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.miss-prize-badge.level-1 {
+    background: linear-gradient(135deg, #ff4444, #ff8800);
+    color: #fff;
+}
+
+.miss-prize-badge.level-2 {
+    background: linear-gradient(135deg, #ff8800, #ffcc00);
+    color: #fff;
+}
+
+.miss-prize-badge.level-3 {
+    background: linear-gradient(135deg, #9055ff, #5566ff);
+    color: #fff;
+}
+
+.miss-prize-badge.level-4 {
+    background: linear-gradient(135deg, #0088cc, #00bbdd);
+    color: #fff;
+}
+
+.miss-prize-badge.level-5 {
+    background: #e8f4e8;
+    color: #227722;
+    border: 1px solid #b8ddb8;
+}
+
+.miss-prize-badge.level-6 {
+    background: #f0f0f8;
+    color: #6666aa;
+    border: 1px solid #d8d8ee;
+}
+
+.miss-prize-badge.level-7 {
+    background: #f5f5f5;
+    color: #999;
+    border: 1px solid #e0e0e0;
+}
+
+/* 中奖期次详情 */
+.miss-detail-wrap {
+    background: #f7f7fd;
+    border: 1px solid #e8e8f2;
+    border-radius: 14px;
+    padding: 16px 18px;
+}
+
+.miss-period-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #ebebf5;
+    flex-wrap: wrap;
+}
+
+.miss-period-row:last-of-type {
+    border-bottom: none;
+}
+
+.miss-period-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 100px;
+}
+
+.miss-period-code {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #444;
+}
+
+.miss-period-date {
+    font-size: 0.7rem;
+    color: #aaa;
+    margin-top: 2px;
+}
+
+.miss-period-balls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    flex-wrap: wrap;
+}
+
+/* 小号彩球（结果展示） */
+.miss-ball {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 0.72rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.miss-ball.red {
+    background: #f0e8e8;
+    color: #cc5555;
+}
+
+.miss-ball.red.hit {
+    background: radial-gradient(circle at 35% 35%, #ff6666, #cc2222);
+    color: #fff;
+    box-shadow: 0 0 6px rgba(255,50,50,0.5);
+}
+
+.miss-ball.blue {
+    background: #e8eef8;
+    color: #5577cc;
+}
+
+.miss-ball.blue.hit {
+    background: radial-gradient(circle at 35% 35%, #4488ff, #1144bb);
+    color: #fff;
+    box-shadow: 0 0 6px rgba(50,100,255,0.5);
+}
+
+.miss-ball-sep {
+    font-size: 0.7rem;
+    color: #ccc;
+    padding: 0 2px;
+}
+
+.miss-more-note {
+    font-size: 0.78rem;
+    color: #aaaacc;
+    text-align: center;
+    padding-top: 10px;
+}
+
+/* ═══════════════════════════════════════════════
+   简洁选号单（slip）
+   ═══════════════════════════════════════════════ */
+.slip-wrapper {
+    margin-top: 14px;
+    background: var(--surface, #fff);
+    border: 1px solid #e5e0d8;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.slip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    border-bottom: 1px solid #ece8e1;
+    background: #faf9f7;
+}
+
+.slip-title {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #1a1610;
+}
+
+.slip-meta {
+    font-size: 0.78rem;
+    color: #9a8a6a;
+}
+
+.slip-list {
+    padding: 6px 0;
+}
+
+.slip-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 18px;
+    border-bottom: 1px solid #f0ece4;
+}
+.slip-row:last-child {
+    border-bottom: none;
+}
+
+.slip-row-label {
+    flex-shrink: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #6a5a3a;
+    min-width: 52px;
+}
+
+.slip-row-balls {
+    font-size: 0.88rem;
+    color: #1a1610;
+    letter-spacing: 0.02em;
+    line-height: 1.6;
+    word-break: break-all;
+}
+
+.slip-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    background: #faf9f7;
+    border-top: 1px solid #ece8e1;
+    font-size: 0.84rem;
+    color: #5a4a2a;
+}
+
+.slip-cost {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #c0392b;
+}
+
+.slip-copy-btn {
+    display: block;
+    width: calc(100% - 36px);
+    margin: 12px 18px;
+    padding: 10px 0;
+    background: #1a1610;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    transition: background 0.15s;
+}
+.slip-copy-btn:hover {
+    background: #3a2e20;
+}
+.slip-copy-btn:active {
+    background: #5a4a30;
+}
