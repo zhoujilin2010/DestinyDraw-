@@ -7,7 +7,7 @@ const LOTTERY_CONFIG = {
         blueMax: 16,
         redDanMin: 1,
         blueDanMax: 1,
-        defaultMultipleRed: 9,
+        defaultMultipleRed: 7,
         defaultMultipleBlue: 1,
         defaultDanTuo: {
             redDan: 2,
@@ -48,8 +48,8 @@ const SUBPAGES = {
     },
     'ssq-miss': {
         title: '错过100万了吗',
-        desc: '这里先作为双色球错过大奖分析的独立界面，避免和其他功能混在同一页。',
-        game: 'ssq'
+        desc: '输入你的号码（单式/复式/胆拖），对比最近100期真实开奖，看看曾经错过哪些奖。',
+        game: null
     },
     'dlt-when': {
         title: '这辈子能中500万吗？',
@@ -71,6 +71,127 @@ const SUBPAGES = {
 const QUICK_PAGE_KEYS    = new Set(['ssq-quick', 'dlt-quick']);
 const AUTO_PAGE_KEYS     = new Set(['ssq-auto',  'dlt-auto']);
 const LIFE_SIM_PAGE_KEYS = new Set(['dlt-when']);
+const MISS_PAGE_KEYS     = new Set(['ssq-miss']);
+
+/* ══════════════════════════════════════════════════════════════
+   LotteryDB —— 历史开奖号码共享数据库
+   · 页面加载后自动后台拉取：SSQ ~500期 / DLT ~300期（3页合并）
+   · 持久化到 localStorage（24h 有效），全局单例
+   API:
+     LotteryDB.getDraws('ssq'|'dlt')  → draws[] 同步读取
+     LotteryDB.getMeta('ssq')         → { count, updatedAt, loading, error }
+     LotteryDB.on(fn)                 → 订阅数据更新
+     LotteryDB.refresh('ssq')         → 强制刷新，返回 Promise
+   ══════════════════════════════════════════════════════════════ */
+const LotteryDB = (() => {
+    const DB_KEY     = { ssq: 'lotterydb_v1_ssq', dlt: 'lotterydb_v1_dlt' };
+    const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    const SSQ_URL    = 'https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=ssq&issueCount=500';
+    const DLT_URL    = p => `https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.do?gameNo=85&provinceId=0&pageSize=100&isVerify=1&pageNo=${p}`;
+    const PROXIES    = [
+        url => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
+        url => 'https://api.allorigins.win/get?url=' + encodeURIComponent(url)
+    ];
+    let _mem       = { ssq: null, dlt: null };
+    let _busy      = { ssq: false, dlt: false };
+    let _listeners = [];
+
+    async function _fetchJson(url) {
+        const tries = [
+            () => fetch(url, { mode: 'cors' }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+            () => fetch(PROXIES[0](url)).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+            () => fetch(PROXIES[1](url)).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json().then(w => JSON.parse(w.contents)); })
+        ];
+        let last;
+        for (const fn of tries) { try { return await fn(); } catch (e) { last = e; } }
+        throw last || new Error('请求失败');
+    }
+    function _parseSsq(j) {
+        return (j.result || []).map(x => ({
+            code: String(x.code), date: x.date,
+            red: x.red.split(',').map(Number), blue: [Number(x.blue)]
+        }));
+    }
+    function _parseDlt(j) {
+        return ((j.value && j.value.list) || []).map(x => {
+            const p = x.lotteryDrawResult.trim().split(/\s+/).map(Number);
+            return { code: String(x.lotteryDrawNum), date: x.lotteryDrawTime,
+                red: p.slice(0, 5), blue: p.slice(5) };
+        });
+    }
+    function _load(g) {
+        try { const r = localStorage.getItem(DB_KEY[g]); return r ? JSON.parse(r) : null; }
+        catch (_) { return null; }
+    }
+    function _save(g, s) { try { localStorage.setItem(DB_KEY[g], JSON.stringify(s)); } catch (_) {} }
+    function _notify(g) { _listeners.forEach(fn => { try { fn(g); } catch (_) {} }); }
+
+    async function _doRefresh(game) {
+        if (_busy[game]) return;
+        _busy[game] = true;
+        const prev = _mem[game];
+        _mem[game] = { draws: prev ? prev.draws : [], updatedAt: prev ? prev.updatedAt : null,
+            loading: true, error: null };
+        _notify(game);
+        try {
+            // 1. 优先读本地数据文件（GitHub Actions 每日更新，无 CORS 问题）
+            try {
+                const localRes = await fetch('./data/' + game + '.json');
+                if (localRes.ok) {
+                    const store = await localRes.json();
+                    if (Array.isArray(store.draws) && store.draws.length > 0) {
+                        _mem[game] = { ...store, loading: false, error: null };
+                        _save(game, store);
+                        return;
+                    }
+                }
+            } catch (_) { /* 本地文件不存在，回退到 API */ }
+            // 2. 回退：远程 API + CORS 代理
+            let draws;
+            if (game === 'ssq') {
+                draws = _parseSsq(await _fetchJson(SSQ_URL));
+            } else {
+                const seen = new Set();
+                const pages = await Promise.all([1, 2, 3].map(p => _fetchJson(DLT_URL(p))));
+                draws = pages.flatMap(_parseDlt)
+                    .filter(d => seen.has(d.code) ? false : (seen.add(d.code), true));
+            }
+            const store = { draws, updatedAt: Date.now() };
+            _mem[game] = { ...store, loading: false, error: null };
+            _save(game, store);
+        } catch (err) {
+            _mem[game] = { draws: prev ? prev.draws : [], updatedAt: prev ? prev.updatedAt : null,
+                loading: false, error: err.message || '获取失败' };
+        } finally {
+            _busy[game] = false;
+            _notify(game);
+        }
+    }
+
+    return {
+        getDraws(g) { return _mem[g] ? _mem[g].draws : []; },
+        getMeta(g) {
+            const m = _mem[g];
+            if (!m) return { count: 0, updatedAt: null, loading: false, error: null };
+            return { count: m.draws.length, updatedAt: m.updatedAt, loading: m.loading, error: m.error };
+        },
+        on(fn)     { _listeners.push(fn); },
+        refresh(g) { return _doRefresh(g); },
+        init() {
+            ['ssq', 'dlt'].forEach((g, i) => {
+                const s = _load(g);
+                if (s && Array.isArray(s.draws) && s.draws.length > 0) {
+                    _mem[g] = { ...s, loading: false, error: null };
+                }
+                const age = s ? Date.now() - s.updatedAt : Infinity;
+                if (age > MAX_AGE_MS) {
+                    setTimeout(() => _doRefresh(g), i === 0 ? 800 : 2500);
+                }
+            });
+        }
+    };
+})();
 
 /* 组合数 C(n, k) */
 function combination(n, k) {
@@ -119,6 +240,7 @@ const navCards = Array.from(document.querySelectorAll('.nav-card'));
 
 let activePageKey = null;
 let quickState = null;
+let missState = null;
 
 function secureRandomInt(maxExclusive) {
     if (!Number.isInteger(maxExclusive) || maxExclusive <= 0) {
@@ -239,7 +361,7 @@ function createQuickState(game, pageKey) {
         game,
         mode: 'single',
         form: {
-            generateCount: 5,
+            generateCount: 2,
             multipleRedTotal: config.defaultMultipleRed,
             multipleBlueTotal: config.defaultMultipleBlue,
             redDanTotal: config.defaultDanTuo.redDan,
@@ -265,7 +387,7 @@ function createAutoState(game, pageKey) {
         killedBlue: new Set(),
         mode: 'single',
         form: {
-            generateCount: 5,
+            generateCount: 2,
             multipleRedTotal: config.defaultMultipleRed,
             multipleBlueTotal: config.defaultMultipleBlue,
             redDanTotal: config.defaultDanTuo.redDan,
@@ -463,91 +585,76 @@ function renderReceiptResults(results, game, mode, form) {
     }
 
     const wrapper = document.createElement('div');
-    wrapper.className = 'receipt-wrapper';
+    wrapper.className = 'slip-wrapper';
 
-    const receipt = document.createElement('div');
-    receipt.className = 'receipt';
-
-    const body = document.createElement('div');
-    body.className = 'receipt-body';
-
-    // 标题
-    const titleEl = document.createElement('div');
-    titleEl.className = 'receipt-title';
-    titleEl.textContent = '选  号  单';
-    body.appendChild(titleEl);
-
-    // 副标题：彩种 + 玩法 + 日期
+    // 标题行
+    const titleRow = document.createElement('div');
+    titleRow.className = 'slip-header';
     const modeLabel = mode === 'single' ? '单式' : mode === 'multiple' ? '复式' : '胆拖';
-    const meta = document.createElement('div');
-    meta.className = 'receipt-meta';
-    meta.textContent = `${config.name}  ${modeLabel}  ${new Date().toLocaleDateString('zh-CN')}`;
-    body.appendChild(meta);
+    titleRow.innerHTML = `<span class="slip-title">选号单</span><span class="slip-meta">${config.name} · ${modeLabel}</span>`;
+    wrapper.appendChild(titleRow);
 
-    const div1 = document.createElement('hr');
-    div1.className = 'receipt-divider';
-    body.appendChild(div1);
-
-    // 每注票
-    const ticketBox = document.createElement('div');
-    ticketBox.className = 'receipt-tickets';
+    // 各组列表
+    const list = document.createElement('div');
+    list.className = 'slip-list';
     results.forEach((ticket, idx) => {
-        const line = document.createElement('div');
-        line.className = 'receipt-ticket';
-        const label = `第${String(idx + 1).padStart(3, '0')}注`;
-        let content = '';
+        const row = document.createElement('div');
+        row.className = 'slip-row';
+
+        const label = document.createElement('span');
+        label.className = 'slip-row-label';
+        label.textContent = `第 ${idx + 1} 组`;
+        row.appendChild(label);
+
+        const balls = document.createElement('span');
+        balls.className = 'slip-row-balls';
         if (ticket.mode === 'dantuo') {
             const bluePart = ticket.blueDan.length
-                ? `  蓝胆:${formatNums(ticket.blueDan)}  蓝拖:${formatNums(ticket.blueTuo)}`
-                : (ticket.blueTuo.length ? `  蓝:${formatNums(ticket.blueTuo)}` : '');
-            content = `红胆:${formatNums(ticket.redDan)}  红拖:${formatNums(ticket.redTuo)}${bluePart}`;
+                ? `  蓝胆 ${formatNums(ticket.blueDan)}  蓝拖 ${formatNums(ticket.blueTuo)}`
+                : (ticket.blueTuo.length ? `  蓝 ${formatNums(ticket.blueTuo)}` : '');
+            balls.textContent = `红胆 ${formatNums(ticket.redDan)}  红拖 ${formatNums(ticket.redTuo)}${bluePart}`;
         } else {
-            content = `红:${formatNums(ticket.red)}  蓝:${formatNums(ticket.blue)}`;
+            balls.textContent = `红球 ${formatNums(ticket.red)}   蓝球 ${formatNums(ticket.blue)}`;
         }
-        line.innerHTML = `<span class="receipt-ticket-label">${label}</span>${content}`;
-        ticketBox.appendChild(line);
+        row.appendChild(balls);
+        list.appendChild(row);
     });
-    body.appendChild(ticketBox);
+    wrapper.appendChild(list);
 
     // 费用合计
-    const div2 = document.createElement('hr');
-    div2.className = 'receipt-divider';
-    body.appendChild(div2);
-
     const totalTickets = calculateTicketCount(game, mode, form);
     const totalCost    = totalTickets * 2;
+    const footer = document.createElement('div');
+    footer.className = 'slip-footer';
+    footer.innerHTML = `<span>共 <strong>${results.length}</strong> 组 · <strong>${totalTickets}</strong> 注</span><span class="slip-cost">¥ ${totalCost.toFixed(2)}</span>`;
+    wrapper.appendChild(footer);
 
-    let countDesc = '';
-    if (mode === 'single') {
-        countDesc = `${results.length} 组  ×  1注/组  =  ${totalTickets} 注`;
-    } else if (mode === 'multiple') {
-        if (game === 'ssq') {
-            countDesc = `${results.length} 组  ×  C(${form.multipleRedTotal},${config.redCount})×${form.multipleBlueTotal}  =  ${totalTickets} 注`;
-        } else {
-            countDesc = `${results.length} 组  ×  C(${form.multipleRedTotal},${config.redCount})×C(${form.multipleBlueTotal},${config.blueCount})  =  ${totalTickets} 注`;
-        }
-    } else {
-        countDesc = `${results.length} 组  ×  C(${form.redTuoTotal},${config.redCount - form.redDanTotal})×…  =  ${totalTickets} 注`;
-    }
+    // 一键复制按钮
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'slip-copy-btn';
+    copyBtn.textContent = '一键复制';
+    copyBtn.addEventListener('click', () => {
+        const lines = results.map((ticket, idx) => {
+            if (ticket.mode === 'dantuo') {
+                const bluePart = ticket.blueDan.length
+                    ? `  蓝胆 ${formatNums(ticket.blueDan)}  蓝拖 ${formatNums(ticket.blueTuo)}`
+                    : (ticket.blueTuo.length ? `  蓝 ${formatNums(ticket.blueTuo)}` : '');
+                return `第${idx + 1}组：红胆 ${formatNums(ticket.redDan)}  红拖 ${formatNums(ticket.redTuo)}${bluePart}`;
+            }
+            return `第${idx + 1}组：红球 ${formatNums(ticket.red)}  蓝球 ${formatNums(ticket.blue)}`;
+        });
+        lines.push(`共${results.length}组 ${totalTickets}注 ¥${totalCost.toFixed(2)}`);
+        navigator.clipboard.writeText(lines.join('\n')).then(() => {
+            copyBtn.textContent = '已复制 ✓';
+            setTimeout(() => { copyBtn.textContent = '一键复制'; }, 2000);
+        }).catch(() => {
+            copyBtn.textContent = '复制失败';
+            setTimeout(() => { copyBtn.textContent = '一键复制'; }, 2000);
+        });
+    });
+    wrapper.appendChild(copyBtn);
 
-    const subtotal = document.createElement('div');
-    subtotal.className = 'receipt-subtotal';
-    subtotal.textContent = countDesc;
-    body.appendChild(subtotal);
-
-    const totalLine = document.createElement('div');
-    totalLine.className = 'receipt-total-line';
-    totalLine.innerHTML = `<span>TOTAL</span><span>¥ ${totalCost.toFixed(2)}</span>`;
-    body.appendChild(totalLine);
-
-    receipt.appendChild(body);
-
-    // 锯齿撕边
-    const torn = document.createElement('div');
-    torn.className = 'receipt-torn';
-    receipt.appendChild(torn);
-
-    wrapper.appendChild(receipt);
     return wrapper;
 }
 
@@ -792,6 +899,15 @@ function openSubpage(pageKey) {
         quickState = null;
         lifeSimState = createLifeSimState();
         renderLifeSimPage();
+    } else if (MISS_PAGE_KEYS.has(pageKey)) {
+        // 错过100万了吗：隱藏 model-note，初始化状态
+        modelNoteText.textContent = '';
+        const modelNoteElMiss = document.querySelector('.model-note');
+        if (modelNoteElMiss) modelNoteElMiss.style.display = 'none';
+        quickState = null;
+        lifeSimState = null;
+        missState = createMissState('ssq');
+        renderMissPage();
     } else {
         // 恢复 model-note 显示
         modelNoteText.textContent = getModelDescription();
@@ -819,6 +935,7 @@ function goHome() {
     // 终止正在运行的 life-sim worker
     if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
     lifeSimState = null;
+    missState = null;
     // 恢复 model-note 显示（以防从 life-sim 页回来）
     const modelNoteEl = document.querySelector('.model-note');
     if (modelNoteEl) modelNoteEl.style.display = '';
@@ -1129,6 +1246,54 @@ subpageContent.addEventListener('click', event => {
     const action = event.target.closest('[data-action="generate-quick"]');
     if (action && quickState) {
         handleGenerateQuick();
+        return;
+    }
+
+    // ── 错过100万了吗：游戏切换 ──
+    const missGameBtn = event.target.closest('[data-miss-action="switch-game"]');
+    if (missGameBtn && missState) {
+        const newGame = missGameBtn.dataset.missGame;
+        missState = createMissState(newGame);
+        renderMissPage();
+        return;
+    }
+
+    // ── 错过100万了吗：玩法切换 ──
+    const missBetBtn = event.target.closest('[data-miss-action="switch-bet"]');
+    if (missBetBtn && missState) {
+        missState.betType = missBetBtn.dataset.missBet;
+        missState.singleRed.clear(); missState.singleBlue.clear();
+        missState.multipleRed.clear(); missState.multipleBlue.clear();
+        missState.danRed.clear(); missState.tuoRed.clear(); missState.danTuoBlue.clear();
+        renderMissPage();
+        return;
+    }
+
+    // ── 错过100万了吗：球选择 ──
+    const missBallBtn = event.target.closest('[data-miss-ball]');
+    if (missBallBtn && missState) {
+        handleMissBallPick(missBallBtn);
+        return;
+    }
+
+    // ── 错过100万了吗：开始对比 ──
+    if (event.target.closest('[data-miss-action="start"]') && missState) {
+        handleMissStart();
+        return;
+    }
+
+    // ── 错过100万了吗：重新选号 ──
+    if (event.target.closest('[data-miss-action="reset"]') && missState) {
+        const prevGame = missState.game;
+        missState = createMissState(prevGame);
+        renderMissPage();
+        return;
+    }
+
+    // ── 错过100万了吗：重试 ──
+    if (event.target.closest('[data-miss-action="retry"]') && missState) {
+        handleMissStart();
+        return;
     }
 });
 
@@ -2201,3 +2366,588 @@ subpageContent.addEventListener('change', function(e) {
     renderLifeSimPage();
 }, true);
 
+/* ══════════════════════════════════════════════════════════════
+   错过100万了吗 —— 历史开奖对比器
+   数据层已迁移至 LotteryDB 单例模块，本节仅保留业务逻辑
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── 奖级判断 ── */
+function getSsqPrize(redHit, blueHit) {
+    if (redHit === 6 && blueHit === 1) return { level: 1, label: '一等奖', reward: '约500万' };
+    if (redHit === 6 && blueHit === 0) return { level: 2, label: '二等奖', reward: '约50万' };
+    if (redHit === 5 && blueHit === 1) return { level: 3, label: '三等奖', reward: '3000元' };
+    if ((redHit === 5 && blueHit === 0) || (redHit === 4 && blueHit === 1)) return { level: 4, label: '四等奖', reward: '200元' };
+    if ((redHit === 4 && blueHit === 0) || (redHit === 3 && blueHit === 1)) return { level: 5, label: '五等奖', reward: '10元' };
+    if (blueHit === 1) return { level: 6, label: '六等奖', reward: '5元' };
+    return null;
+}
+
+function getDltPrize(frontHit, backHit) {
+    if (frontHit === 5 && backHit === 2) return { level: 1, label: '一等奖', reward: '约500万' };
+    if (frontHit === 5 && backHit === 1) return { level: 2, label: '二等奖', reward: '约50万' };
+    if (frontHit === 5 && backHit === 0) return { level: 3, label: '三等奖', reward: '1万元' };
+    if (frontHit === 4 && backHit === 2) return { level: 4, label: '四等奖', reward: '3000元' };
+    if ((frontHit === 4 && backHit === 1) || (frontHit === 3 && backHit === 2)) return { level: 5, label: '五等奖', reward: '300元' };
+    if ((frontHit === 4 && backHit === 0) || (frontHit === 3 && backHit === 1) || (frontHit === 2 && backHit === 2)) return { level: 6, label: '六等奖', reward: '100-200元' };
+    if ((frontHit === 3 && backHit === 0) || (frontHit === 2 && backHit === 1) || (frontHit === 1 && backHit === 2) || (frontHit === 0 && backHit === 2)) return { level: 7, label: '七等奖', reward: '15元' };
+    return null;
+}
+
+/* ── 单期对比 ── */
+function checkMissPeriod(st, draw) {
+    const game = st.game;
+    if (st.betType === 'danTuo') {
+        const drawRedSet = new Set(draw.red);
+        const allDanHit = [...st.danRed].every(n => drawRedSet.has(n));
+        if (!allDanHit) {
+            const redHit = draw.red.filter(n => st.danRed.has(n) || st.tuoRed.has(n)).length;
+            const blueHit = draw.blue.filter(n => st.danTuoBlue.has(n)).length;
+            return { prize: null, redHit, blueHit };
+        }
+        const nonDanDrawReds = draw.red.filter(n => !st.danRed.has(n));
+        const redHit = st.danRed.size + nonDanDrawReds.filter(n => st.tuoRed.has(n)).length;
+        const blueHit = draw.blue.filter(n => st.danTuoBlue.has(n)).length;
+        const prize = game === 'ssq' ? getSsqPrize(redHit, blueHit) : getDltPrize(redHit, blueHit);
+        return { prize, redHit, blueHit };
+    }
+    const userRed  = st.betType === 'single' ? st.singleRed  : st.multipleRed;
+    const userBlue = st.betType === 'single' ? st.singleBlue : st.multipleBlue;
+    const redHit  = draw.red.filter(n => userRed.has(n)).length;
+    const blueHit = draw.blue.filter(n => userBlue.has(n)).length;
+    const prize = game === 'ssq' ? getSsqPrize(redHit, blueHit) : getDltPrize(redHit, blueHit);
+    return { prize, redHit, blueHit };
+}
+
+/* ── 抓取历史开奖：优先读 LotteryDB 缓存，无则触发后台刷新 ── */
+async function fetchDrawHistory(game) {
+    const cached = LotteryDB.getDraws(game);
+    if (cached.length > 0) return cached;
+    await LotteryDB.refresh(game);
+    const fresh = LotteryDB.getDraws(game);
+    if (fresh.length === 0) throw Object.assign(new Error('获取开奖数据失败'), { type: 'NETWORK' });
+    return fresh;
+}
+
+/* ── 状态工厂 ── */
+function createMissState(game) {
+    return {
+        game,
+        betType: 'single',
+        singleRed:    new Set(),
+        singleBlue:   new Set(),
+        multipleRed:  new Set(),
+        multipleBlue: new Set(),
+        danRed:       new Set(),
+        tuoRed:       new Set(),
+        danTuoBlue:   new Set(),
+        step: 'select',
+        draws: [],
+        matchResults: [],
+        errorMsg: ''
+    };
+}
+
+/* ── 球点击处理 ── */
+function handleMissBallPick(btn) {
+    const st = missState;
+    const group = btn.dataset.missGroup;
+    const num   = Number(btn.dataset.missNum);
+    const config = LOTTERY_CONFIG[st.game];
+
+    if (group === 'danTuoRed') {
+        if (st.danRed.has(num)) {
+            st.danRed.delete(num);
+            st.tuoRed.add(num);
+        } else if (st.tuoRed.has(num)) {
+            st.tuoRed.delete(num);
+        } else {
+            if (st.danRed.size < config.redCount - 1) st.danRed.add(num);
+        }
+    } else {
+        const setMap = {
+            singleRed:   st.singleRed,
+            singleBlue:  st.singleBlue,
+            multipleRed: st.multipleRed,
+            multipleBlue:st.multipleBlue,
+            danTuoBlue:  st.danTuoBlue
+        };
+        const limits = {
+            singleRed:    config.redCount,
+            singleBlue:   config.blueCount,
+            multipleRed:  config.redMax,
+            multipleBlue: config.blueMax,
+            danTuoBlue:   config.blueMax
+        };
+        const set = setMap[group];
+        if (!set) return;
+        if (set.has(num)) {
+            set.delete(num);
+        } else if (set.size < limits[group]) {
+            set.add(num);
+        }
+    }
+    renderMissPage();
+}
+
+/* ── 验证选号 ── */
+function validateMissSelection(st) {
+    const config = LOTTERY_CONFIG[st.game];
+    const blueName = st.game === 'ssq' ? '蓝球' : '后区号';
+    if (st.betType === 'single') {
+        if (st.singleRed.size  < config.redCount)  return `还需选 ${config.redCount  - st.singleRed.size}  个红球`;
+        if (st.singleBlue.size < config.blueCount) return `还需选 ${config.blueCount - st.singleBlue.size} 个${blueName}`;
+        return null;
+    }
+    if (st.betType === 'multiple') {
+        if (st.multipleRed.size  <= config.redCount)  return `复式红球需选 ${config.redCount + 1} 个或以上（当前 ${st.multipleRed.size} 个）`;
+        if (st.multipleBlue.size <  config.blueCount) return `至少选 ${config.blueCount} 个${blueName}`;
+        return null;
+    }
+    if (st.betType === 'danTuo') {
+        if (st.danRed.size === 0) return '胆码至少选 1 个';
+        if (st.tuoRed.size === 0) return '拖码至少选 1 个';
+        if (st.danRed.size + st.tuoRed.size <= config.redCount) return `胆码+拖码合计需超过 ${config.redCount} 个（当前 ${st.danRed.size + st.tuoRed.size} 个）`;
+        if (st.danTuoBlue.size < config.blueCount) return `还需选 ${config.blueCount - st.danTuoBlue.size} 个${blueName}`;
+        return null;
+    }
+    return null;
+}
+
+/* ── 触发对比流程 ── */
+async function handleMissStart() {
+    const st = missState;
+    /* LotteryDB 已有缓存时直接出结果，无需 loading 等待 */
+    const cached = LotteryDB.getDraws(st.game);
+    if (cached.length > 0) {
+        st.draws = cached;
+        st.matchResults = cached.map(draw => ({ draw, ...checkMissPeriod(st, draw) }));
+        st.step = 'result';
+        renderMissPage();
+        return;
+    }
+    /* 无缓存：显示 loading 并后台拉取 */
+    st.step = 'loading';
+    renderMissPage();
+    try {
+        await LotteryDB.refresh(st.game);
+        const draws = LotteryDB.getDraws(st.game);
+        if (draws.length === 0) throw new Error('无数据');
+        st.draws = draws;
+        st.matchResults = draws.map(draw => ({ draw, ...checkMissPeriod(st, draw) }));
+        st.step = 'result';
+    } catch (_) {
+        st.errorMsg = '获取开奖数据失败（已尝试直连及两个代理），请检查网络后重试。';
+        st.step = 'error';
+    }
+    renderMissPage();
+}
+
+/* ── 主渲染入口 ── */
+function renderMissPage() {
+    subpageContent.innerHTML = '';
+    if (!missState) return;
+    let node;
+    switch (missState.step) {
+        case 'select':  node = buildMissSelectUI();  break;
+        case 'loading': node = buildMissLoadingUI(); break;
+        case 'result':  node = buildMissResultUI();  break;
+        case 'error':   node = buildMissErrorUI();   break;
+        default: return;
+    }
+    subpageContent.appendChild(node);
+}
+
+/* ── 球选择器（单选/复选） ── */
+function buildMissBallPicker(colorClass, labelText, max, selectedSet, limit, groupName) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ls-ball-picker';
+    const lbl = document.createElement('p');
+    lbl.className = 'ls-ball-picker-title';
+    lbl.textContent = labelText;
+    wrap.appendChild(lbl);
+    const grid = document.createElement('div');
+    grid.className = 'ls-ball-grid';
+    for (let i = 1; i <= max; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isActive   = selectedSet.has(i);
+        const isAtLimit  = !isActive && selectedSet.size >= limit;
+        btn.className = 'ls-ball ' + colorClass + (isActive ? ' active' : '') + (isAtLimit ? ' miss-blocked' : '');
+        btn.textContent  = String(i).padStart(2, '0');
+        btn.dataset.missBall  = '1';
+        btn.dataset.missGroup = groupName;
+        btn.dataset.missNum   = i;
+        btn.disabled = isAtLimit;
+        grid.appendChild(btn);
+    }
+    wrap.appendChild(grid);
+    return wrap;
+}
+
+/* ── 胆拖红球三态选择器 ── */
+function buildMissDanTuoRedPicker() {
+    const st = missState;
+    const config = LOTTERY_CONFIG[st.game];
+    const wrap = document.createElement('div');
+    wrap.className = 'ls-ball-picker';
+    const lbl = document.createElement('p');
+    lbl.className = 'ls-ball-picker-title';
+    lbl.innerHTML = `点一次 = <b style="color:#c07000">胆码</b>，再点 = <b style="color:#3060cc">拖码</b>，再点取消&ensp;·&ensp;胆 <b>${st.danRed.size}</b> 个&ensp;拖 <b>${st.tuoRed.size}</b> 个`;
+    wrap.appendChild(lbl);
+    const grid = document.createElement('div');
+    grid.className = 'ls-ball-grid';
+    for (let i = 1; i <= config.redMax; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isDan = st.danRed.has(i);
+        const isTuo = st.tuoRed.has(i);
+        btn.className = 'ls-ball red-ball' + (isDan ? ' ls-dan' : isTuo ? ' ls-tuo' : '');
+        btn.textContent = String(i).padStart(2, '0');
+        btn.dataset.missBall  = '1';
+        btn.dataset.missGroup = 'danTuoRed';
+        btn.dataset.missNum   = i;
+        btn.title = isDan ? '胆码（再点→拖码）' : isTuo ? '拖码（再点→取消）' : '点击设为胆码';
+        grid.appendChild(btn);
+    }
+    wrap.appendChild(grid);
+    const hint = document.createElement('p');
+    hint.className = 'ls-number-hint';
+    hint.style.marginTop = '8px';
+    hint.textContent = '胆码必须全部出现在开奖号里；拖码覆盖剩余球位。';
+    wrap.appendChild(hint);
+    return wrap;
+}
+
+/* ── 选号界面 ── */
+function buildMissSelectUI() {
+    const st = missState;
+    const config = LOTTERY_CONFIG[st.game];
+    const wrap = document.createElement('div');
+    wrap.className = 'miss-select';
+
+    // 游戏切换
+    const gameTabsDiv = document.createElement('div');
+    gameTabsDiv.className = 'miss-tabs';
+    [['ssq', '双色球'], ['dlt', '大乐透']].forEach(([g, label]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'miss-tab' + (st.game === g ? ' active' : '');
+        btn.textContent = label;
+        btn.dataset.missAction = 'switch-game';
+        btn.dataset.missGame = g;
+        gameTabsDiv.appendChild(btn);
+    });
+    wrap.appendChild(gameTabsDiv);
+
+    // 玩法切换
+    const betTabsDiv = document.createElement('div');
+    betTabsDiv.className = 'miss-tabs';
+    [['single', '单式'], ['multiple', '复式'], ['danTuo', '胆拖']].forEach(([type, label]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'miss-tab' + (st.betType === type ? ' active' : '');
+        btn.textContent = label;
+        btn.dataset.missAction = 'switch-bet';
+        btn.dataset.missBet = type;
+        betTabsDiv.appendChild(btn);
+    });
+    wrap.appendChild(betTabsDiv);
+
+    // 选球区
+    const configArea = document.createElement('div');
+    configArea.className = 'ls-config-area';
+    const blueName = st.game === 'ssq' ? '蓝球' : '后区号';
+
+    if (st.betType === 'single') {
+        configArea.appendChild(buildMissBallPicker('red-ball',
+            `选红球（恰好 ${config.redCount} 个，已选 ${st.singleRed.size} 个）`,
+            config.redMax, st.singleRed, config.redCount, 'singleRed'));
+        configArea.appendChild(buildMissBallPicker('blue-ball',
+            `选${blueName}（${config.blueCount} 个）`,
+            config.blueMax, st.singleBlue, config.blueCount, 'singleBlue'));
+    } else if (st.betType === 'multiple') {
+        configArea.appendChild(buildMissBallPicker('red-ball',
+            `选红球（至少 ${config.redCount + 1} 个，已选 ${st.multipleRed.size} 个）`,
+            config.redMax, st.multipleRed, config.redMax, 'multipleRed'));
+        configArea.appendChild(buildMissBallPicker('blue-ball',
+            `选${blueName}（至少 ${config.blueCount} 个，已选 ${st.multipleBlue.size} 个）`,
+            config.blueMax, st.multipleBlue, config.blueMax, 'multipleBlue'));
+    } else {
+        configArea.appendChild(buildMissDanTuoRedPicker());
+        configArea.appendChild(buildMissBallPicker('blue-ball',
+            `选${blueName}（至少 ${config.blueCount} 个）`,
+            config.blueMax, st.danTuoBlue, config.blueMax, 'danTuoBlue'));
+    }
+    wrap.appendChild(configArea);
+
+    // 验证提示
+    const validErr = validateMissSelection(st);
+    if (validErr) {
+        const hint = document.createElement('p');
+        hint.className = 'miss-hint';
+        hint.textContent = '⚠ ' + validErr;
+        wrap.appendChild(hint);
+    }
+
+    // 开始按钮
+    const startBtn = document.createElement('button');
+    startBtn.type = 'button';
+    startBtn.className = 'ls-start-btn';
+    startBtn.textContent = '开始对比最近100期开奖';
+    startBtn.dataset.missAction = 'start';
+    if (validErr) startBtn.disabled = true;
+    wrap.appendChild(startBtn);
+
+    return wrap;
+}
+
+/* ── 加载中界面 ── */
+function buildMissLoadingUI() {
+    const div = document.createElement('div');
+    div.className = 'miss-loading';
+    const spinner = document.createElement('div');
+    spinner.className = 'miss-spinner';
+    div.appendChild(spinner);
+    const text = document.createElement('p');
+    text.className = 'miss-loading-text';
+    text.textContent = '正在获取最近100期开奖数据…';
+    div.appendChild(text);
+    return div;
+}
+
+/* ── 错误界面 ── */
+function buildMissErrorUI() {
+    const st = missState;
+    const wrap = document.createElement('div');
+    wrap.className = 'miss-error';
+
+    const icon = document.createElement('div');
+    icon.className = 'miss-error-icon';
+    icon.textContent = '⚠️';
+    wrap.appendChild(icon);
+
+    const msg = document.createElement('p');
+    msg.className = 'miss-error-msg';
+    msg.textContent = st.errorMsg;
+    wrap.appendChild(msg);
+
+    const tip = document.createElement('p');
+    tip.className = 'miss-error-tip';
+    tip.textContent = '已自动尝试直连及两个 CORS 代理均失败。请检查网络连接，或改用 VS Code Live Server 打开本页面后重试。';
+    wrap.appendChild(tip);
+
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'ls-start-btn';
+    retryBtn.style.marginBottom = '10px';
+    retryBtn.textContent = '重新获取';
+    retryBtn.dataset.missAction = 'retry';
+    wrap.appendChild(retryBtn);
+
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'ls-retry-btn';
+    resetBtn.textContent = '重新选号';
+    resetBtn.dataset.missAction = 'reset';
+    wrap.appendChild(resetBtn);
+
+    return wrap;
+}
+
+/* ── 辅助：近似奖金总计 ── */
+function calcApproxWin(winResults) {
+    const APPROX = { 1: 5000000, 2: 500000, 3: 3000, 4: 200, 5: 10, 6: 5, 7: 15 };
+    const total = winResults.reduce((s, r) => s + (APPROX[r.prize.level] || 0), 0);
+    if (total >= 10000) return Math.round(total / 10000) + ' 万元';
+    return total + ' 元';
+}
+
+/* ── 单期行渲染 ── */
+function buildMissPeriodRow(result, st) {
+    const { draw, prize, redHit, blueHit } = result;
+    const row = document.createElement('div');
+    row.className = 'miss-period-row';
+
+    const info = document.createElement('div');
+    info.className = 'miss-period-info';
+    const codeSpan = document.createElement('span');
+    codeSpan.className = 'miss-period-code';
+    codeSpan.textContent = '第 ' + draw.code + ' 期';
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'miss-period-date';
+    dateSpan.textContent = draw.date;
+    info.appendChild(codeSpan);
+    info.appendChild(dateSpan);
+    row.appendChild(info);
+
+    // 开奖号（命中高亮）
+    const ballsDiv = document.createElement('div');
+    ballsDiv.className = 'miss-period-balls';
+
+    const userRed  = st.betType === 'danTuo'
+        ? new Set([...st.danRed, ...st.tuoRed])
+        : (st.betType === 'single' ? st.singleRed : st.multipleRed);
+    const userBlue = st.betType === 'danTuo' ? st.danTuoBlue
+        : (st.betType === 'single' ? st.singleBlue : st.multipleBlue);
+
+    draw.red.forEach(n => {
+        const b = document.createElement('span');
+        b.className = 'miss-ball red' + (userRed.has(n) ? ' hit' : '');
+        b.textContent = String(n).padStart(2, '0');
+        ballsDiv.appendChild(b);
+    });
+    const sep = document.createElement('span');
+    sep.className = 'miss-ball-sep';
+    sep.textContent = '+';
+    ballsDiv.appendChild(sep);
+    draw.blue.forEach(n => {
+        const b = document.createElement('span');
+        b.className = 'miss-ball blue' + (userBlue.has(n) ? ' hit' : '');
+        b.textContent = String(n).padStart(2, '0');
+        ballsDiv.appendChild(b);
+    });
+    row.appendChild(ballsDiv);
+
+    const badge = document.createElement('span');
+    badge.className = 'miss-prize-badge level-' + prize.level;
+    badge.textContent = prize.label;
+    row.appendChild(badge);
+
+    return row;
+}
+
+/* ── 结果界面 ── */
+function buildMissResultUI() {
+    const st = missState;
+    const config = LOTTERY_CONFIG[st.game];
+
+    const winResults = st.matchResults.filter(r => r.prize !== null);
+    const totalPeriods = st.matchResults.length;
+    const totalWins = winResults.length;
+
+    // 最高奖级
+    let bestLevel = 0, bestPrizeLabel = '无', bestCount = 0;
+    if (winResults.length > 0) {
+        bestLevel = Math.min(...winResults.map(r => r.prize.level));
+        bestPrizeLabel = winResults.find(r => r.prize.level === bestLevel).prize.label;
+        bestCount = winResults.filter(r => r.prize.level === bestLevel).length;
+    }
+
+    // 最接近一等奖（最小差球数）
+    const maxRed = config.redCount, maxBlue = config.blueCount;
+    let minDist = maxRed + maxBlue;
+    st.matchResults.forEach(r => {
+        const dist = (maxRed - r.redHit) + (maxBlue - r.blueHit);
+        if (dist < minDist) minDist = dist;
+    });
+    const closestDesc = minDist === 0 ? '完全命中！' : `差 ${minDist} 个球`;
+
+    const betLabels = { single: '单式', multiple: '复式', danTuo: '胆拖' };
+
+    const wrap = document.createElement('div');
+    wrap.className = 'ls-result-done';
+
+    // Banner
+    const banner = document.createElement('div');
+    banner.className = 'ls-result-banner';
+    const emoji = totalWins > 0 ? (bestLevel <= 2 ? '🤯' : '😱') : '😔';
+    const bannerTitle = totalWins > 0
+        ? `最近 ${totalPeriods} 期，你错过了 ${totalWins} 个奖！`
+        : `最近 ${totalPeriods} 期全军覆没`;
+    banner.innerHTML = `<div class="ls-result-banner-emoji">${emoji}</div>
+        <div class="ls-result-banner-title">${bannerTitle}</div>
+        <div class="ls-result-banner-sub">${config.name} · ${betLabels[st.betType]}</div>`;
+    wrap.appendChild(banner);
+
+    // 汇总卡片
+    const grid = document.createElement('div');
+    grid.className = 'ls-result-grid';
+    const approxMonths = Math.round(totalPeriods / (st.game === 'ssq' ? 3 : 2));
+    const cardData = [
+        { label: '对比期数', main: totalPeriods + ' 期', color: 'cyan', sub: `约 ${approxMonths} 个月` },
+        { label: '最高错过', main: bestLevel > 0 ? bestPrizeLabel : '无',
+          color: bestLevel <= 2 ? 'red' : bestLevel <= 4 ? 'yellow' : 'green',
+          sub: bestLevel > 0 ? `共 ${bestCount} 次` : '没错过任何奖' },
+        { label: '最接近一等奖', main: closestDesc, color: 'yellow',
+          sub: `命中 ${maxRed + maxBlue - minDist}/${maxRed + maxBlue} 球` },
+        { label: '总中奖次数', main: totalWins + ' 次',
+          color: totalWins > 0 ? 'green' : '',
+          sub: totalWins > 0 ? '参考奖金约 ' + calcApproxWin(winResults) : '颗粒无收' }
+    ];
+    cardData.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'ls-result-card';
+        card.innerHTML = `<div class="ls-result-card-label">${c.label}</div>
+            <div class="ls-result-card-main ${c.color}">${c.main}</div>
+            <div class="ls-result-card-sub">${c.sub}</div>`;
+        grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
+
+    // 奖级汇总表
+    if (winResults.length > 0) {
+        const prizeMap = {};
+        winResults.forEach(r => {
+            const k = r.prize.level;
+            if (!prizeMap[k]) prizeMap[k] = { ...r.prize, count: 0 };
+            prizeMap[k].count++;
+        });
+
+        const tableWrap = document.createElement('div');
+        tableWrap.className = 'miss-table-wrap';
+        const tableTitle = document.createElement('p');
+        tableTitle.className = 'miss-section-title';
+        tableTitle.textContent = '奖级明细';
+        tableWrap.appendChild(tableTitle);
+
+        const table = document.createElement('table');
+        table.className = 'miss-table';
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr><th>奖级</th><th>次数</th><th>参考奖金</th></tr>';
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        Object.values(prizeMap).sort((a, b) => a.level - b.level).forEach(p => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><span class="miss-prize-badge level-${p.level}">${p.label}</span></td>
+                <td><b>${p.count}</b> 次</td><td>${p.reward}</td>`;
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        wrap.appendChild(tableWrap);
+    }
+
+    // 中奖期次详情
+    if (winResults.length > 0) {
+        const detailWrap = document.createElement('div');
+        detailWrap.className = 'miss-detail-wrap';
+        const detailTitle = document.createElement('p');
+        detailTitle.className = 'miss-section-title';
+        detailTitle.textContent = `中奖期次（${winResults.length} 期，高亮=命中）`;
+        detailWrap.appendChild(detailTitle);
+
+        const SHOW_MAX = 20;
+        winResults.slice(0, SHOW_MAX).forEach(r => detailWrap.appendChild(buildMissPeriodRow(r, st)));
+
+        if (winResults.length > SHOW_MAX) {
+            const more = document.createElement('p');
+            more.className = 'miss-more-note';
+            more.textContent = `…还有 ${winResults.length - SHOW_MAX} 期中奖未显示`;
+            detailWrap.appendChild(more);
+        }
+        wrap.appendChild(detailWrap);
+    }
+
+    // 重新选号
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'ls-retry-btn';
+    resetBtn.textContent = '重新选号';
+    resetBtn.dataset.missAction = 'reset';
+    wrap.appendChild(resetBtn);
+
+    return wrap;
+}
+
+/* ── 页面加载后启动 LotteryDB 后台同步 ── */
+LotteryDB.init();
