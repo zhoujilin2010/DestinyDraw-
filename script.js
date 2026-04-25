@@ -229,6 +229,10 @@ function formatNums(numbers) {
     return numbers.map(n => String(n).padStart(2, '0')).join(' ');
 }
 
+const AUTO_GROUP_MIN_DELAY_MS = 140;
+const AUTO_GROUP_DELAY_JITTER_MS = 40;
+const AUTO_SIMILARITY_RETRY_LIMIT = 6;
+
 
 const subpageView = document.getElementById('subpageView');
 const backHomeBtn = document.getElementById('backHomeBtn');
@@ -370,6 +374,7 @@ function createQuickState(game, pageKey) {
             blueTuoTotal: config.defaultDanTuo.blueTuo
         },
         custom: createEmptyQuickCustomState(),
+        generating: false,
         results: [],
         error: ''
     };
@@ -396,9 +401,85 @@ function createAutoState(game, pageKey) {
             blueTuoTotal: config.defaultDanTuo.blueTuo
         },
         custom: createEmptyQuickCustomState(),
+        generating: false,
         results: [],
         error: ''
     };
+}
+
+function sleep(ms) {
+    return new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
+}
+
+function getTicketNumberSets(ticket) {
+    if (!ticket) return { red: new Set(), blue: new Set() };
+
+    if (ticket.mode === 'dantuo') {
+        return {
+            red: new Set([...(ticket.redDan || []), ...(ticket.redTuo || [])]),
+            blue: new Set([...(ticket.blueDan || []), ...(ticket.blueTuo || [])])
+        };
+    }
+
+    return {
+        red: new Set(ticket.red || []),
+        blue: new Set(ticket.blue || [])
+    };
+}
+
+function calcSetOverlapRatio(setA, setB) {
+    const base = Math.max(1, Math.min(setA.size, setB.size));
+    let overlap = 0;
+    setA.forEach(value => {
+        if (setB.has(value)) overlap += 1;
+    });
+    return overlap / base;
+}
+
+function calcTicketSimilarity(candidate, baseline) {
+    const c = getTicketNumberSets(candidate);
+    const b = getTicketNumberSets(baseline);
+    const redRatio = calcSetOverlapRatio(c.red, b.red);
+    const blueRatio = calcSetOverlapRatio(c.blue, b.blue);
+    // 红球对可读感知影响更大，权重略高。
+    return (redRatio * 0.72) + (blueRatio * 0.28);
+}
+
+function createTicketByMode(game, mode) {
+    if (mode === 'single') return generateSingleTicket(game);
+    if (mode === 'multiple') return generateMultipleTicket(game);
+    return generateDanTuoTicket(game);
+}
+
+function createAutoDiverseTicket(game, mode, previousResults) {
+    if (!previousResults.length) {
+        return createTicketByMode(game, mode);
+    }
+
+    let bestTicket = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    const baseline = previousResults[previousResults.length - 1];
+
+    for (let attempt = 0; attempt < AUTO_SIMILARITY_RETRY_LIMIT; attempt += 1) {
+        const candidate = createTicketByMode(game, mode);
+        const score = calcTicketSimilarity(candidate, baseline);
+        if (score < bestScore) {
+            bestScore = score;
+            bestTicket = candidate;
+        }
+        if (score < 0.75) {
+            return candidate;
+        }
+    }
+
+    return bestTicket || createTicketByMode(game, mode);
+}
+
+async function waitForNextAutoGroup() {
+    const jitter = secureRandomInt(AUTO_GROUP_DELAY_JITTER_MS + 1);
+    await sleep(AUTO_GROUP_MIN_DELAY_MS + jitter);
 }
 
 function getQuickPickerLimit(group) {
@@ -794,7 +875,7 @@ function renderQuickPage() {
 
     const actionBar = document.createElement('div');
     actionBar.className = 'actions-bar';
-    actionBar.innerHTML = '<button class="generate-btn" data-action="generate-quick" type="button">开始生成</button>';
+    actionBar.innerHTML = `<button class="generate-btn" data-action="generate-quick" type="button" ${quickState.generating ? 'disabled' : ''}>${quickState.generating ? '生成中...' : '开始生成'}</button>`;
     builder.appendChild(actionBar);
 
     if (quickState.error) {
@@ -1137,28 +1218,40 @@ function validateQuickState() {
     return '';
 }
 
-function handleGenerateQuick() {
+async function handleGenerateQuick() {
     if (!quickState) return;
+    if (quickState.generating) return;
     quickState.error = validateQuickState();
     if (quickState.error) {
         renderQuickPage();
         return;
     }
 
-    const results = [];
-    for (let i = 0; i < quickState.form.generateCount; i += 1) {
-        if (quickState.mode === 'single') {
-            results.push(generateSingleTicket(quickState.game));
-        } else if (quickState.mode === 'multiple') {
-            results.push(generateMultipleTicket(quickState.game));
-        } else {
-            results.push(generateDanTuoTicket(quickState.game));
-        }
-    }
-
-    quickState.error = '';
-    quickState.results = results;
+    quickState.generating = true;
     renderQuickPage();
+
+    try {
+        const results = [];
+        const needAutoDelay = quickState.isAutoMode && quickState.form.generateCount > 1;
+
+        for (let i = 0; i < quickState.form.generateCount; i += 1) {
+            if (quickState.isAutoMode) {
+                results.push(createAutoDiverseTicket(quickState.game, quickState.mode, results));
+            } else {
+                results.push(createTicketByMode(quickState.game, quickState.mode));
+            }
+
+            if (needAutoDelay && i < quickState.form.generateCount - 1) {
+                await waitForNextAutoGroup();
+            }
+        }
+
+        quickState.error = '';
+        quickState.results = results;
+    } finally {
+        quickState.generating = false;
+        renderQuickPage();
+    }
 }
 
 /* ── 卡片标题随机渐变色 ──
