@@ -4452,13 +4452,17 @@ function createManualCheckState() {
     };
 }
 
+// 双色球特别版：从1-33抽15个红球
+const SSQ_SPECIAL_PICK = 15;
+
 /**
  * 生成空号校验工具 UI（无需手动选球）
  * 用户选择彩种 + 期数 → 点击开始 → 后台物理摇奖机跑1000注 → 输出统计
  */
 function buildManualCheckUI() {
     const mc = manualCheckState;
-    const config = LOTTERY_CONFIG[mc.game];
+    const _isSsqSpecialUI = mc.game === 'ssq-special';
+    const config = LOTTERY_CONFIG[_isSsqSpecialUI ? 'ssq' : mc.game];
     const isK8 = config.isK8;
 
     const section = document.createElement('section');
@@ -4471,7 +4475,10 @@ function buildManualCheckUI() {
 
     const subEl = document.createElement('p');
     subEl.className = 'preview-desc';
-    subEl.textContent = '用物理摇奖机自动生成1000注号码，与历史开奖逐一比对，统计平均每隔多少期出现全部落空和红球全空。';
+    const isSsqSp = manualCheckState && manualCheckState.game === 'ssq-special';
+    subEl.textContent = isSsqSp
+        ? '用物理摇奖机自动生成100000注15红球号码，与历史开奖红球逐一比对，统计平均每注命中几个红球，以及平均多少期出现红球全空（0命中）。'
+        : '用物理摇奖机自动生成100000注号码，与历史开奖逐一比对，统计平均每隔多少期出现全部落空和红球全空。';
     section.appendChild(subEl);
 
     const wrap = document.createElement('div');
@@ -4483,7 +4490,7 @@ function buildManualCheckUI() {
     gameRow.innerHTML = '<label>选择彩种</label>';
     const gameSwitch = document.createElement('div');
     gameSwitch.className = 'mode-switch';
-    [['ssq', '双色球'], ['dlt', '大乐透'], ['k8', '快乐8']].forEach(([g, label]) => {
+    [['ssq', '双色球'], ['dlt', '大乐透'], ['k8', '快乐8'], ['ssq-special', '双色球特别版']].forEach(([g, label]) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'mode-tab' + (mc.game === g ? ' active' : '');
@@ -4493,6 +4500,14 @@ function buildManualCheckUI() {
     });
     gameRow.appendChild(gameSwitch);
     wrap.appendChild(gameRow);
+
+    // ── 双色球特别版说明 ──
+    if (mc.game === 'ssq-special') {
+        const spNote = document.createElement('div');
+        spNote.className = 'auto-mode-note';
+        spNote.textContent = '双色球特别版：从1-33号红球池中抽取15个红球，与开奖6个红球比对，统计平均命中数及红球全空间隔。';
+        wrap.appendChild(spNote);
+    }
 
     // ── K8 固定 20 球（无需选法选项卡）──
     if (isK8) {
@@ -4581,8 +4596,10 @@ function buildManualCheckUI() {
 function buildManualCheckResultUI(report) {
     const { game, k8SelectMode, ticketCount, totalPeriods,
             avgAllMissGap, avgRedMissGap, pctAllMiss, pctRedMiss,
-            distAllMiss } = report;
-    const config = LOTTERY_CONFIG[game];
+            avgRedHit, hitDistCount, distAllMiss } = report;
+    const isSsqSpecial = game === 'ssq-special';
+    const actualGame   = isSsqSpecial ? 'ssq' : game;
+    const config = LOTTERY_CONFIG[actualGame];
     const isK8 = config.isK8;
 
     const wrap = document.createElement('div');
@@ -4592,7 +4609,8 @@ function buildManualCheckResultUI(report) {
     const rtitle = document.createElement('p');
     rtitle.className = 'validator-section-title';
     rtitle.style.marginTop = '16px';
-    const gameLabel = isK8 ? `快乐8·${K8_SELECT_NAMES[k8SelectMode - 1]}` : config.name;
+    const gameLabel = isSsqSpecial ? `双色球特别版（15红球）`
+        : isK8 ? `快乐8·${K8_SELECT_NAMES[k8SelectMode - 1]}` : config.name;
     rtitle.textContent = `${gameLabel} · ${ticketCount}注 × ${totalPeriods}期 蒙特卡洛模拟结果`;
     wrap.appendChild(rtitle);
 
@@ -4600,7 +4618,15 @@ function buildManualCheckResultUI(report) {
     const statsGrid = document.createElement('div');
     statsGrid.className = 'validator-stats-grid';
 
-    const cards = isK8
+    const cards = isSsqSpecial
+        ? [
+            { label: '模拟票数',         main: ticketCount + ' 注',    sub: '物理摇奖机生成' },
+            { label: '验证期数',         main: totalPeriods + ' 期',   sub: '' },
+            { label: '平均每期命中红球', main: avgRedHit + ' 个',       sub: '每注15红球平均命中' },
+            { label: '红球全空间隔',     main: avgRedMissGap + ' 期',   sub: '平均多少期红球全不中' },
+            { label: '红球全空概率',     main: pctRedMiss + '%',        sub: '每期红球全0命中率' }
+          ]
+        : isK8
         ? [
             { label: '模拟票数',     main: ticketCount + ' 注',  sub: '物理摇奖机生成' },
             { label: '验证期数',     main: totalPeriods + ' 期', sub: '' },
@@ -4624,12 +4650,35 @@ function buildManualCheckResultUI(report) {
     });
     wrap.appendChild(statsGrid);
 
-    // 全空间隔分布
-    if (distAllMiss && distAllMiss.length > 0) {
+    // 双色球特别版：命中数分布
+    if (isSsqSpecial && hitDistCount && hitDistCount.length > 0) {
+        const hitTitle = document.createElement('p');
+        hitTitle.className = 'validator-section-title';
+        hitTitle.style.marginTop = '16px';
+        hitTitle.textContent = `命中红球数分布（${ticketCount}注，按各注典型命中档位统计）`;
+        wrap.appendChild(hitTitle);
+
+        const maxHitCount = Math.max(...hitDistCount);
+        const hitGrid = document.createElement('div');
+        hitGrid.className = 'mc-dist-grid';
+        hitDistCount.forEach((cnt, idx) => {
+            const pct = maxHitCount > 0 ? (cnt / maxHitCount * 100).toFixed(0) : 0;
+            const row = document.createElement('div');
+            row.className = 'mc-dist-row';
+            row.innerHTML = `<span class="mc-dist-label">命中${idx}个</span>
+                <span class="mc-dist-bar-wrap"><span class="mc-dist-bar" style="width:${pct}%"></span></span>
+                <span class="mc-dist-count">${cnt}</span>`;
+            hitGrid.appendChild(row);
+        });
+        wrap.appendChild(hitGrid);
+    }
+
+    // 全空间隔分布（非特别版）
+    if (!isSsqSpecial && distAllMiss && distAllMiss.length > 0) {
         const distTitle = document.createElement('p');
         distTitle.className = 'validator-section-title';
         distTitle.style.marginTop = '16px';
-        distTitle.textContent = '全零间隔分布（1000注中各区间票数）';
+        distTitle.textContent = `全零间隔分布（${ticketCount}注中各区间票数）`;
         wrap.appendChild(distTitle);
 
         const maxCount = Math.max(...distAllMiss.map(d => d.count));
@@ -4650,7 +4699,9 @@ function buildManualCheckResultUI(report) {
     // 解读说明
     const interp = document.createElement('p');
     interp.className = 'mc-interp-note';
-    if (isK8) {
+    if (isSsqSpecial) {
+        interp.textContent = `解读：在${totalPeriods}期历史数据中，从1-33号红球池随机取15个球，平均每期能命中开奖红球 ${avgRedHit} 个，平均每 ${avgRedMissGap} 期出现一次红球全部落空（0命中），全空率约 ${pctRedMiss}%。`;
+    } else if (isK8) {
         interp.textContent = `解读：在${totalPeriods}期历史数据中，每注快乐8号码平均每 ${avgAllMissGap} 期出现一次"全部落空"，整体全空率约 ${pctAllMiss}%。`;
     } else {
         interp.textContent = `解读：在${totalPeriods}期历史数据中，每注号码平均每 ${avgAllMissGap} 期出现一次"红蓝全部落空"，红球平均每 ${avgRedMissGap} 期出现一次"全部落空"，红球全空率约 ${pctRedMiss}%。`;
@@ -4667,14 +4718,16 @@ function buildManualCheckResultUI(report) {
 async function runManualCheck() {
     if (!manualCheckState) return;
     const mc = manualCheckState;
+    const _isSsqSpecialEarly = mc.game === 'ssq-special';
+    const _loadGame = _isSsqSpecialEarly ? 'ssq' : mc.game;
 
-    let draws = LotteryDB.getDraws(mc.game);
+    let draws = LotteryDB.getDraws(_loadGame);
     if (!draws || draws.length === 0) {
         // 数据尚未缓存，主动触发加载并等待
         mc.error = '数据加载中，请稍候…';
         renderValidationLogPage();
-        try { await LotteryDB.refresh(mc.game); } catch (_) {}
-        draws = LotteryDB.getDraws(mc.game);
+        try { await LotteryDB.refresh(_loadGame); } catch (_) {}
+        draws = LotteryDB.getDraws(_loadGame);
         if (!draws || draws.length === 0) {
             mc.error = '数据获取失败，请检查网络后重试。';
             mc.running = false;
@@ -4684,11 +4737,13 @@ async function runManualCheck() {
         mc.error = '';
     }
 
-    const config = LOTTERY_CONFIG[mc.game];
+    const isSsqSpecial = mc.game === 'ssq-special';
+    const actualGame   = isSsqSpecial ? 'ssq' : mc.game;
+    const config = LOTTERY_CONFIG[actualGame];
     const isK8 = config.isK8;
     const limited = mc.windowSize === 0 ? draws : draws.slice(0, mc.windowSize);
     const totalPeriods = limited.length;
-    const TICKET_COUNT = 1000;
+    const TICKET_COUNT = 100000;
 
     // 预构建每期开奖数据的 Set，节省重复构建开销
     const drawRedSets  = limited.map(d => new Set(d.red));
@@ -4700,6 +4755,8 @@ async function runManualCheck() {
     let sumPctAllMiss = 0;
     let sumPctRedMiss = 0;
     let sumRedHitPerPeriod = 0; // 累计每注平均命中红球数
+    // 双色球特别版：命中数分布 [0命中,1命中,...,6命中]
+    const hitDistCount = isSsqSpecial ? new Array(7).fill(0) : null;
 
     // 全零间隔分布桶（按间隔区间：<2, 2-4, 4-8, 8-16, 16-32, 32-64, 64-128, >128）
     const BUCKETS = ['<2', '2-3', '4-7', '8-15', '16-31', '32-63', '64-127', '≥128'];
@@ -4716,7 +4773,7 @@ async function runManualCheck() {
         return 7;
     }
 
-    const CHUNK = 50; // 每批次生成50注，然后 yield 一次
+    const CHUNK = 200; // 每批次生成200注，然后 yield 一次
     let processed = 0;
 
     while (processed < TICKET_COUNT) {
@@ -4724,7 +4781,11 @@ async function runManualCheck() {
         for (let i = processed; i < end; i++) {
             // ── 物理摇奖机生成一注号码 ──
             let ticketRed, ticketBlue = [];
-            if (isK8) {
+            if (isSsqSpecial) {
+                // 双色球特别版：从1-33抽15个红球，不需要蓝球
+                const redPool = Array.from({ length: 33 }, (_, idx) => idx + 1);
+                ticketRed = simulatePhysicalDrawFromPool(redPool, SSQ_SPECIAL_PICK).drawn;
+            } else if (isK8) {
                 const pool = Array.from({ length: 80 }, (_, idx) => idx + 1);
                 ticketRed = simulatePhysicalDrawFromPool(pool, 20).drawn;
             } else {
@@ -4740,16 +4801,32 @@ async function runManualCheck() {
             let allMissCount = 0;
             let redMissCount = 0;
             let totalRedHit = 0;
-            for (let j = 0; j < totalPeriods; j++) {
-                let redHit = 0;
-                drawRedSets[j].forEach(n => { if (ticketRedSet.has(n)) redHit++; });
-                let blueHit = 0;
-                if (!isK8) {
-                    drawBlueSets[j].forEach(n => { if (ticketBlueSet.has(n)) blueHit++; });
+            if (isSsqSpecial) {
+                // 特别版：只统计红球命中，记录每注各期命中数分布
+                const perPeriodHits = new Array(7).fill(0); // 统计0~6命中的期数
+                for (let j = 0; j < totalPeriods; j++) {
+                    let redHit = 0;
+                    drawRedSets[j].forEach(n => { if (ticketRedSet.has(n)) redHit++; });
+                    totalRedHit += redHit;
+                    if (redHit === 0) redMissCount++;
+                    perPeriodHits[Math.min(6, redHit)]++;
                 }
-                totalRedHit += redHit;
-                if (redHit === 0 && blueHit === 0) allMissCount++;
-                if (redHit === 0) redMissCount++;
+                // 用本注中出现最多的命中数档位计入分布（反映典型命中水平）
+                const dominantHit = perPeriodHits.indexOf(Math.max(...perPeriodHits));
+                hitDistCount[dominantHit]++;
+                allMissCount = redMissCount;
+            } else {
+                for (let j = 0; j < totalPeriods; j++) {
+                    let redHit = 0;
+                    drawRedSets[j].forEach(n => { if (ticketRedSet.has(n)) redHit++; });
+                    let blueHit = 0;
+                    if (!isK8) {
+                        drawBlueSets[j].forEach(n => { if (ticketBlueSet.has(n)) blueHit++; });
+                    }
+                    totalRedHit += redHit;
+                    if (redHit === 0 && blueHit === 0) allMissCount++;
+                    if (redHit === 0) redMissCount++;
+                }
             }
             sumRedHitPerPeriod += totalPeriods > 0 ? totalRedHit / totalPeriods : 0;
 
@@ -4763,7 +4840,7 @@ async function runManualCheck() {
             sumRedMissGap += redMissGap;
             sumPctAllMiss += pctAll;
             sumPctRedMiss += pctRed;
-            bucketCounts[getBucketIdx(allMissGap)]++;
+            if (!isSsqSpecial) bucketCounts[getBucketIdx(allMissGap)]++;
         }
         processed = end;
 
@@ -4785,6 +4862,7 @@ async function runManualCheck() {
         pctAllMiss:    (sumPctAllMiss / TICKET_COUNT).toFixed(2),
         pctRedMiss:    (sumPctRedMiss / TICKET_COUNT).toFixed(2),
         avgRedHit:     (sumRedHitPerPeriod / TICKET_COUNT).toFixed(2),
+        hitDistCount,
         distAllMiss: BUCKETS.map((range, idx) => ({ range, count: bucketCounts[idx] }))
     };
     mc.error = '';

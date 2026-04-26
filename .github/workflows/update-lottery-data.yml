@@ -1,0 +1,48 @@
+name: 彩票数据库每日更新
+
+on:
+  # 每天北京时间 22:30 自动执行（UTC 14:30）
+  schedule:
+    - cron: '30 14 * * *'
+  # 也可以在 GitHub 网页上手动触发
+  workflow_dispatch:
+
+jobs:
+  update-lottery-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许推送 commit
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install requests beautifulsoup4
+
+      - name: 运行数据更新脚本
+        run: python scripts/update-data.py
+        env:
+          PYTHONIOENCODING: utf-8
+
+      - name: 提交并推送（如有新数据）
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ssq.json data/dlt.json data/k8.json
+          # 只有数据有变化时才 commit
+          if git diff --staged --quiet; then
+            echo "📭 无新数据，跳过 commit"
+          else
+            CHANGED=$(git diff --staged --name-only | tr '\n' ' ')
+            git commit -m "chore: 自动更新开奖数据 [$(date '+%Y-%m-%d %H:%M UTC')]
+
+更新文件: $CHANGED"
+            git push
+            echo "✅ 新数据已推送"
+          fi

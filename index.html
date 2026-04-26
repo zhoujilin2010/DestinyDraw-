@@ -1,32 +1,89 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- 设置页面标题为“彩票摇号助手” -->
-    <title>彩票摇号助手</title>
-    <!-- 引入样式表 -->
+    <title>买彩票 中大奖</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <!-- 创建一个主标题，内容是“在线彩票摇号助手” -->
-        <h1>在线彩票摇号助手</h1>
+    <main class="page-shell">
+        <section id="homeView" class="home-view">
+            <h1 class="hero-title">买彩票 中大奖</h1>
 
-        <div class="button-group">
-            <!-- 创建一个大乐透按钮 -->
-            <button id="dalietouBtn">大乐透</button>
-            <!-- 创建一个双色球按钮 -->
-            <button id="shuangseqiuBtn">双色球</button>
-        </div>
+            <div class="nav-grid" aria-label="功能导航">
+                <button class="nav-card" data-page="ssq-auto" type="button">
+                    <span class="nav-card-title">双色球自动选号</span>
+                    <span class="nav-card-desc">按策略自动分析并推荐双色球号码</span>
+                </button>
 
-        <!-- 创建一个显示彩票号码的区域 -->
-        <div id="lotteryDisplay" class="lottery-display">
-            <!-- 摇号结果将显示在这里 -->
-        </div>
-    </div>
+                <button class="nav-card" data-page="dlt-auto" type="button">
+                    <span class="nav-card-title">大乐透自助选号</span>
+                    <span class="nav-card-desc">按策略自动分析并推荐大乐透号码</span>
+                </button>
 
-    <!-- 引入JavaScript脚本 -->
+                <button class="nav-card" data-page="k8-auto" type="button">
+                    <span class="nav-card-title">快乐8自动选号</span>
+                    <span class="nav-card-desc">生成参考号模拟快乐8摇奖，杀号后按玩法生成最终号码</span>
+                </button>
+
+                <button class="nav-card" data-page="ssq-quick" type="button">
+                    <span class="nav-card-title">机选双色球</span>
+                    <span class="nav-card-desc">随机生成号码，支持单式、复式、胆拖</span>
+                </button>
+
+                <button class="nav-card" data-page="dlt-quick" type="button">
+                    <span class="nav-card-title">机选大乐透</span>
+                    <span class="nav-card-desc">随机生成号码，支持单式、复式、胆拖</span>
+                </button>
+
+                <button class="nav-card" data-page="k8-quick" type="button">
+                    <span class="nav-card-title">机选快乐8</span>
+                    <span class="nav-card-desc">支持选一到选十全玩法，可单式、复式或胆拖</span>
+                </button>
+
+                <button class="nav-card" data-page="ssq-miss" type="button">
+                    <span class="nav-card-title">错过100万了吗</span>
+                    <span class="nav-card-desc">输入你的号码，对比最近100期开奖，看看曾错过几等奖</span>
+                </button>
+
+                <button class="nav-card" data-page="dlt-when" type="button">
+                    <span class="nav-card-title">这辈子能中500万吗</span>
+                    <span class="nav-card-desc">硬核彩票人生模拟器，模拟买到一等奖要花多少年</span>
+                </button>
+
+                <button class="nav-card" data-page="validator" type="button">
+                    <span class="nav-card-title">历史验证器</span>
+                    <span class="nav-card-desc">输入一注号码，与历史开奖对比，统计平均命中与全空轮次</span>
+                </button>
+
+                <button class="nav-card" data-page="validation-log" type="button">
+                    <span class="nav-card-title">空号校验工具</span>
+                    <span class="nav-card-desc">手动选号进行一次性历史比对，查看校验结果与AI参数建议</span>
+                </button>
+            </div>
+        </section>
+
+        <section id="subpageView" class="subpage-view hidden">
+            <div class="subpage-header">
+                <button id="backHomeBtn" class="back-btn" type="button">返回首页</button>
+                <div class="subpage-header-copy">
+                    <h2 id="subpageTitle" class="subpage-title"></h2>
+                    <p id="subpageDesc" class="subpage-desc"></p>
+                </div>
+            </div>
+
+            <div class="subpage-panel">
+                <div class="model-note">
+                    <h3>统一随机模型</h3>
+                    <p id="modelNoteText"></p>
+                </div>
+
+                <div id="subpageContent" class="subpage-content"></div>
+            </div>
+        </section>
+    </main>
+
     <script src="script.js"></script>
 </body>
 </html>
