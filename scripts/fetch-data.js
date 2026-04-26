@@ -104,6 +104,20 @@ async function fetchDLT() {
     return draws;
 }
 
+async function fetchK8() {
+    console.log('  Fetching KL8 from cwl.gov.cn ...');
+    const json = await fetchJson(
+        'https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=kl8&issueCount=300',
+        { 'Referer': 'https://www.cwl.gov.cn/' }
+    );
+    if (!json.result || !Array.isArray(json.result)) throw new Error('KL8: unexpected response');
+    return json.result.map(item => ({
+        code: String(item.code),
+        date: item.date,
+        red:  item.red.split(',').map(Number)   // 20 个开奖号，1-80
+    }));
+}
+
 async function main() {
     let success = 0;
 
@@ -129,7 +143,18 @@ async function main() {
         console.error(`  ✗ DLT failed: ${e.message}`);
     }
 
-    console.log(`\nDone: ${success}/2 successful`);
+    console.log('[KL8]');
+    try {
+        const draws = await fetchK8();
+        const store = { draws, updatedAt: Date.now() };
+        fs.writeFileSync(path.join(DATA_DIR, 'k8.json'), JSON.stringify(store));
+        console.log(`  ✓ Saved ${draws.length} periods → data/k8.json`);
+        success++;
+    } catch(e) {
+        console.error(`  ✗ KL8 failed: ${e.message}`);
+    }
+
+    console.log(`\nDone: ${success}/3 successful`);
     if (success === 0) process.exit(1);
 }
 

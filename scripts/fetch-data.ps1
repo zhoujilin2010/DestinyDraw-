@@ -82,4 +82,31 @@ try {
     exit 1
 }
 
+Write-Host "[KL8] Fetching KL8 (快乐8) data..."
+try {
+    $h = $baseHeaders.Clone()
+    $h["Referer"] = "https://www.cwl.gov.cn/"
+    $k8Url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=kl8&issueCount=300"
+    $r    = Invoke-WebRequest $k8Url -Headers $h -TimeoutSec 30 -UseBasicParsing
+    $json = $r.Content | ConvertFrom-Json
+    if ($json.state -ne 0) { throw "API state=$($json.state) msg=$($json.message)" }
+
+    $draws = @()
+    foreach ($x in $json.result) {
+        $draws += [PSCustomObject]@{
+            code = [string]$x.code
+            date = $x.date
+            red  = $x.red.Split(',') | ForEach-Object { [int]$_ }
+        }
+    }
+    $updatedAt = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    [PSCustomObject]@{ draws = $draws; updatedAt = $updatedAt } |
+        ConvertTo-Json -Depth 5 -Compress |
+        Set-Content "data/k8.json" -Encoding UTF8
+    Write-Host "[KL8] OK - $($draws.Count) draws saved"
+} catch {
+    Write-Host "[KL8] FAILED: $($_.Exception.Message)"
+    exit 1
+}
+
 Write-Host "Done!"
