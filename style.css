@@ -55,13 +55,30 @@ body {
     align-items: center;
 }
 
-.hero-title {
+.hero-title-wrap {
+    position: relative;
+    display: inline-block;
     margin: 0 0 48px;
+}
+
+.hero-title {
+    margin: 0;
     font-size: clamp(2.6rem, 7vw, 4.5rem);
     font-weight: 800;
     letter-spacing: -0.02em;
     text-align: center;
     color: #1d1d1f;
+}
+
+.hero-version {
+    position: absolute;
+    right: -4px;
+    bottom: -18px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #999;
+    letter-spacing: 0.04em;
+    user-select: none;
 }
 
 /* ── 导航卡片网格：桌面 3 列，平板 2 列，手机 1 列 ── */
