@@ -1,4 +1,4 @@
-﻿const LOTTERY_CONFIG = {
+const LOTTERY_CONFIG = {
     ssq: {
         name: '双色球',
         redCount: 6,
@@ -301,6 +301,7 @@ const subpageTitle = document.getElementById('subpageTitle');
 const subpageDesc = document.getElementById('subpageDesc');
 const modelNoteText = document.getElementById('modelNoteText');
 const subpageContent = document.getElementById('subpageContent');
+const modelNote = document.querySelector('.model-note');
 const navCards = Array.from(document.querySelectorAll('.nav-card'));
 
 let activePageKey = null;
@@ -595,26 +596,6 @@ function normalizeQuickSelections() {
     custom.blueDan = new Set([...custom.blueDan].filter(n => !custom.blueTuo.has(n)));
 }
 
-function renderPlaceholderContent(pageKey) {
-    const page = SUBPAGES[pageKey];
-    const fragment = document.createDocumentFragment();
-
-    const note = document.createElement('div');
-    note.className = 'preview-card';
-    note.innerHTML = '<h3 class="preview-title">当前阶段</h3><p class="preview-text">这里只先固定二级界面容器，避免不同功能继续堆在首页产生相互污染。下一步再分别补每个按钮自己的内容。</p>';
-    fragment.appendChild(note);
-
-    const preview = generateLotteryByMachine(page.game);
-    const wrapper = document.createElement('div');
-    wrapper.className = 'preview-card';
-    wrapper.innerHTML = `<h3 class="preview-title">统一摇奖机模型示例</h3><p class="preview-text">当前示例先用完整球池、多轮洗牌、顺序出球的方式模拟 ${LOTTERY_CONFIG[page.game].name} 摇奖。</p>`;
-    wrapper.appendChild(renderBallRow(preview.red, 'red'));
-    wrapper.appendChild(renderBallRow(preview.blue, 'blue'));
-    fragment.appendChild(wrapper);
-
-    return fragment;
-}
-
 function renderQuickPicker(title, group, color, max, selectedSet, limit, excludedSet) {
     const card = document.createElement('div');
     card.className = 'picker-card';
@@ -652,77 +633,6 @@ function renderQuickPicker(title, group, color, max, selectedSet, limit, exclude
     card.appendChild(grid);
     return card;
 }
-
-function renderQuickResults(results) {
-    const container = document.createElement('div');
-    container.className = 'results-grid';
-
-    if (!results.length) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.textContent = '先配置模式和选号方式，再点击“开始生成”。';
-        container.appendChild(empty);
-        return container;
-    }
-
-    results.forEach((ticket, index) => {
-        const card = document.createElement('article');
-        card.className = 'ticket-card';
-
-        const title = document.createElement('h4');
-        title.className = 'ticket-title';
-        title.textContent = `第 ${index + 1} 组`;
-        card.appendChild(title);
-
-        if (ticket.mode === 'dantuo') {
-            const redDanLabel = document.createElement('p');
-            redDanLabel.className = 'ticket-label';
-            redDanLabel.textContent = '红球胆码';
-            card.appendChild(redDanLabel);
-            card.appendChild(renderBallRow(ticket.redDan, 'red', ticket.manual.redDan));
-
-            const redTuoLabel = document.createElement('p');
-            redTuoLabel.className = 'ticket-label';
-            redTuoLabel.textContent = '红球拖码';
-            card.appendChild(redTuoLabel);
-            card.appendChild(renderBallRow(ticket.redTuo, 'red', ticket.manual.redTuo));
-
-            const blueDanLabel = document.createElement('p');
-            blueDanLabel.className = 'ticket-label';
-            blueDanLabel.textContent = '蓝球胆码';
-            card.appendChild(blueDanLabel);
-            card.appendChild(renderBallRow(ticket.blueDan, 'blue', ticket.manual.blueDan));
-
-            const blueTuoLabel = document.createElement('p');
-            blueTuoLabel.className = 'ticket-label';
-            blueTuoLabel.textContent = '蓝球拖码';
-            card.appendChild(blueTuoLabel);
-            card.appendChild(renderBallRow(ticket.blueTuo, 'blue', ticket.manual.blueTuo));
-        } else {
-            const redLabel = document.createElement('p');
-            redLabel.className = 'ticket-label';
-            redLabel.textContent = '红球';
-            card.appendChild(redLabel);
-            card.appendChild(renderBallRow(ticket.red, 'red', ticket.manual.red));
-
-            const blueLabel = document.createElement('p');
-            blueLabel.className = 'ticket-label';
-            blueLabel.textContent = '蓝球';
-            card.appendChild(blueLabel);
-            card.appendChild(renderBallRow(ticket.blue, 'blue', ticket.manual.blue));
-        }
-
-        const note = document.createElement('p');
-        note.className = 'ticket-note';
-        note.textContent = ticket.summary;
-        card.appendChild(note);
-
-        container.appendChild(card);
-    });
-
-    return container;
-}
-
 /* ── 小票风格结果渲染（统一用于机选和自动选号页面）── */
 function renderReceiptResults(results, game, mode, form) {
     const config = LOTTERY_CONFIG[game];
@@ -1076,56 +986,36 @@ function openSubpage(pageKey) {
     subpageTitle.textContent = page.title;
     subpageDesc.textContent = page.desc;
 
+    const hideModelNote = LIFE_SIM_PAGE_KEYS.has(pageKey) || MISS_PAGE_KEYS.has(pageKey)
+        || VALIDATOR_PAGE_KEYS.has(pageKey) || VLOG_PAGE_KEYS.has(pageKey);
+    modelNote.style.display = hideModelNote ? 'none' : '';
+    modelNoteText.textContent = hideModelNote ? '' : getModelDescription();
+
     if (LIFE_SIM_PAGE_KEYS.has(pageKey)) {
-        // 废弃默认的「统一随机模型」说明栏（life-sim 有自己的 UI）
-        modelNoteText.textContent = '';
-        const modelNoteEl = document.querySelector('.model-note');
-        if (modelNoteEl) modelNoteEl.style.display = 'none';
         quickState = null;
         lifeSimState = createLifeSimState();
         renderLifeSimPage();
     } else if (MISS_PAGE_KEYS.has(pageKey)) {
-        // 错过100万了吗：隱藏 model-note，初始化状态
-        modelNoteText.textContent = '';
-        const modelNoteElMiss = document.querySelector('.model-note');
-        if (modelNoteElMiss) modelNoteElMiss.style.display = 'none';
         quickState = null;
         lifeSimState = null;
         missState = createMissState('ssq');
         renderMissPage();
     } else if (VALIDATOR_PAGE_KEYS.has(pageKey)) {
-        modelNoteText.textContent = '';
-        const modelNoteElV = document.querySelector('.model-note');
-        if (modelNoteElV) modelNoteElV.style.display = 'none';
         quickState = null;
         lifeSimState = null;
         validatorState = createValidatorState();
         renderValidatorPage();
     } else if (VLOG_PAGE_KEYS.has(pageKey)) {
-        modelNoteText.textContent = '';
-        const modelNoteElVL = document.querySelector('.model-note');
-        if (modelNoteElVL) modelNoteElVL.style.display = 'none';
         quickState = null;
         lifeSimState = null;
         manualCheckState = createManualCheckState();
         renderValidationLogPage();
-    } else {
-        // 恢复 model-note 显示
-        modelNoteText.textContent = getModelDescription();
-        const modelNoteEl = document.querySelector('.model-note');
-        if (modelNoteEl) modelNoteEl.style.display = '';
-
-        if (QUICK_PAGE_KEYS.has(pageKey)) {
-            quickState = createQuickState(page.game, pageKey);
-            renderQuickPage();
-        } else if (AUTO_PAGE_KEYS.has(pageKey)) {
-            quickState = createAutoState(page.game, pageKey);
-            renderAutoPage();
-        } else {
-            quickState = null;
-            subpageContent.innerHTML = '';
-            subpageContent.appendChild(renderPlaceholderContent(pageKey));
-        }
+    } else if (QUICK_PAGE_KEYS.has(pageKey)) {
+        quickState = createQuickState(page.game, pageKey);
+        renderQuickPage();
+    } else if (AUTO_PAGE_KEYS.has(pageKey)) {
+        quickState = createAutoState(page.game, pageKey);
+        renderAutoPage();
     }
 
     homeView.classList.add('hidden');
@@ -1133,13 +1023,10 @@ function openSubpage(pageKey) {
 }
 
 function goHome() {
-    // 终止正在运行的 life-sim worker
     if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
     lifeSimState = null;
     missState = null;
-    // 恢复 model-note 显示（以防从 life-sim 页回来）
-    const modelNoteEl = document.querySelector('.model-note');
-    if (modelNoteEl) modelNoteEl.style.display = '';
+    modelNote.style.display = '';
     activePageKey = null;
     subpageView.classList.add('hidden');
     homeView.classList.remove('hidden');

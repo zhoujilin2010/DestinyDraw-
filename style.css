@@ -187,12 +187,6 @@ body {
     cursor: pointer;
 }
 
-.subpage-kicker {
-    margin: 0 0 8px;
-    color: var(--muted);
-    font-size: 0.9rem;
-}
-
 .subpage-title {
     margin: 0 0 8px;
     font-size: clamp(1.8rem, 4vw, 2.6rem);
@@ -229,17 +223,10 @@ body {
 }
 
 .model-note p,
-.preview-text,
-.preview-meta {
+.preview-text {
     margin: 0;
     color: #444;
     line-height: 1.8;
-}
-
-.preview-label {
-    margin: 16px 0 10px;
-    font-size: 0.92rem;
-    color: var(--muted);
 }
 
 .subpage-content {
@@ -285,8 +272,7 @@ body {
 }
 
 .config-card,
-.picker-card,
-.ticket-card {
+.picker-card {
     background: #faf9f7;
     border: 1px solid #ece8e1;
     border-radius: 18px;
@@ -329,7 +315,6 @@ body {
 
 .helper-text,
 .picker-tip,
-.ticket-note,
 .empty-state {
     margin: 12px 0 0;
     color: var(--muted);
@@ -345,8 +330,7 @@ body {
     flex-wrap: wrap;
 }
 
-.picker-header h4,
-.ticket-title {
+.picker-header h4 {
     margin: 0;
     font-size: 1.02rem;
 }
@@ -428,18 +412,6 @@ body {
     line-height: 1.6;
 }
 
-.results-grid {
-    display: grid;
-    gap: 16px;
-    margin-top: 16px;
-}
-
-.ticket-label {
-    margin: 14px 0 8px;
-    color: var(--muted);
-    font-size: 0.9rem;
-}
-
 .mini-ball.manual {
     box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.14), 0 8px 14px rgba(0, 0, 0, 0.12);
 }
@@ -512,106 +484,6 @@ body {
     .generate-btn {
         width: 100%;
     }
-}
-
-/* ═══════════════════════════════════════════════
-   超市小票风格「选号单」
-   ═══════════════════════════════════════════════ */
-.receipt-wrapper {
-    margin-top: 14px;
-}
-
-.receipt {
-    /* 米白纸色背景 */
-    background: #fdf9ee;
-    font-family: 'Courier New', Courier, monospace;
-    border-radius: 4px 4px 0 0;
-    box-shadow:
-        0 2px 12px rgba(0, 0, 0, 0.09),
-        0 1px 3px  rgba(0, 0, 0, 0.05);
-    overflow: hidden;
-}
-
-.receipt-body {
-    padding: 20px 28px 16px;
-}
-
-/* 标题：衬线字体，仿手写感 */
-.receipt-title {
-    text-align: center;
-    font-family: Georgia, 'Times New Roman', 'Songti SC', serif;
-    font-style: italic;
-    font-size: 1.55rem;
-    letter-spacing: 0.08em;
-    color: #2a2216;
-    padding-bottom: 14px;
-    margin-bottom: 10px;
-    border-bottom: 1px dashed #c8b89a;
-}
-
-/* 副信息：彩种、玩法、日期 */
-.receipt-meta {
-    font-size: 0.72rem;
-    color: #9a8a6a;
-    margin-bottom: 10px;
-    letter-spacing: 0.04em;
-}
-
-.receipt-divider {
-    border: none;
-    border-top: 1px dashed #c8b89a;
-    margin: 10px 0;
-}
-
-.receipt-tickets {
-    padding: 2px 0;
-}
-
-/* 每注一行 */
-.receipt-ticket {
-    padding: 3px 0;
-    font-size: 0.79rem;
-    color: #2a2216;
-    line-height: 1.75;
-    word-break: break-all;
-}
-
-.receipt-ticket-label {
-    color: #9a8a6a;
-    margin-right: 6px;
-    display: inline-block;
-    width: 56px;
-    flex-shrink: 0;
-}
-
-/* 注数公式说明 */
-.receipt-subtotal {
-    font-size: 0.71rem;
-    color: #9a8a6a;
-    margin-bottom: 6px;
-    letter-spacing: 0.02em;
-}
-
-/* TOTAL 行 */
-.receipt-total-line {
-    display: flex;
-    justify-content: space-between;
-    font-weight: bold;
-    font-size: 0.95rem;
-    color: #1a1610;
-    padding: 4px 0 2px;
-    letter-spacing: 0.06em;
-}
-
-/* 锯齿撕边：模拟小票底部 */
-.receipt-torn {
-    height: 14px;
-    background:
-        linear-gradient(135deg, transparent 33.33%, #fdf9ee 33.33%) 0 0,
-        linear-gradient(225deg, transparent 33.33%, #fdf9ee 33.33%) 0 0;
-    background-color: var(--bg);
-    background-repeat: repeat-x;
-    background-size: 14px 14px;
 }
 
 /* ═══════════════════════════════════════════════
@@ -1788,13 +1660,6 @@ body {
     color: #fff;
 }
 
-/* 手动校验选球区间距 */
-.mc-picker-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-}
-
 /* 蒙特卡洛进度条 */
 .mc-progress-wrap {
     margin-top: 16px;
@@ -2094,7 +1959,7 @@ body {
 .vallog-badge.rolled-back{ background: #3a1a1a; color: #f87171; }
 .vallog-game { font-weight: 600; color: #fff; }
 .vallog-time { font-size: 0.78rem; color: #666; margin-left: auto; }
-.vallog-trigger, .vallog-reason { font-size: 0.85rem; color: #aaa; }
+.vallog-reason { font-size: 0.85rem; color: #aaa; }
 .vallog-stats { font-size: 0.83rem; color: #aaa; }
 .vallog-params {
     display: flex;
