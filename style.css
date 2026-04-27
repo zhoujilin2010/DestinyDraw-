@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg: #f5f5f7;
     --panel: #ffffff;
     --text: #1d1d1f;
@@ -58,8 +58,26 @@ body {
 .hero-title-wrap {
     position: relative;
     display: inline-block;
-    margin: 0 0 40px;
+    margin: 0 0 48px;
     line-height: 0;
+    animation: logoFloat 5s ease-in-out infinite;
+}
+
+.hero-title-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        108deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.55) 50%,
+        transparent 70%
+    );
+    background-size: 280% 100%;
+    background-position: -280% 0;
+    animation: logoShimmer 5s ease-in-out infinite;
+    pointer-events: none;
+    mix-blend-mode: overlay;
 }
 
 .hero-logo {
@@ -67,23 +85,63 @@ body {
     width: clamp(260px, 55vw, 520px);
     height: auto;
     mix-blend-mode: multiply;
-    filter: drop-shadow(0 4px 18px rgba(120, 80, 220, 0.22));
+    filter:
+        contrast(1.12)
+        saturate(1.18)
+        drop-shadow(0 6px 24px rgba(130, 60, 240, 0.38))
+        drop-shadow(0 2px 10px rgba(200, 80, 255, 0.22));
     user-select: none;
     pointer-events: none;
+    animation:
+        logoEntrance 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+        logoGlow 3.8s ease-in-out 0.9s infinite alternate;
 }
 
 .hero-version {
     position: absolute;
     right: 2px;
-    bottom: -16px;
+    bottom: -18px;
     font-size: 0.68rem;
     font-weight: 500;
-    color: #aaa;
-    letter-spacing: 0.05em;
+    color: #b0a0c8;
+    letter-spacing: 0.06em;
     user-select: none;
 }
 
-/* ── 导航卡片网格：桌面 3 列，平板 2 列，手机 1 列 ── */
+@keyframes logoFloat {
+    0%, 100% { transform: translateY(0px) rotate(0deg); }
+    35%       { transform: translateY(-9px) rotate(0.4deg); }
+    70%       { transform: translateY(-4px) rotate(-0.3deg); }
+}
+
+@keyframes logoEntrance {
+    from { opacity: 0; transform: translateY(24px) scale(0.9); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes logoGlow {
+    from {
+        filter:
+            contrast(1.12) saturate(1.18)
+            drop-shadow(0 6px 24px rgba(130, 60, 240, 0.32))
+            drop-shadow(0 2px 10px rgba(200, 80, 255, 0.18));
+    }
+    to {
+        filter:
+            contrast(1.12) saturate(1.25)
+            drop-shadow(0 10px 40px rgba(150, 50, 255, 0.6))
+            drop-shadow(0 0 28px rgba(220, 100, 255, 0.4))
+            drop-shadow(0 2px 10px rgba(80, 160, 255, 0.25));
+    }
+}
+
+@keyframes logoShimmer {
+    0%   { background-position: -280% 0; opacity: 0; }
+    8%   { opacity: 1; }
+    92%  { opacity: 1; }
+    100% { background-position: 280% 0; opacity: 0; }
+}
+
 .nav-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
