@@ -1997,11 +1997,25 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 .vallog-header h3 {
     font-size: 1rem;
     color: #ccc;
     margin: 0;
+}
+.vallog-header-btns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.btn-danger {
+    border-color: #ef4444 !important;
+    color: #ef4444 !important;
+}
+.btn-danger:hover {
+    background: rgba(239, 68, 68, 0.12) !important;
 }
 .vallog-entry {
     background: #1a1a1a;
