@@ -441,7 +441,7 @@ function createQuickState(game, pageKey) {
         results: [],
         error: ''
     };
-    if (config.isK8) state.k8SelectMode = 8; // 默认选八
+    if (config.isK8) state.k8SelectMode = 10; // 默认选十
     return state;
 }
 
@@ -472,7 +472,7 @@ function createAutoState(game, pageKey) {
         results: [],
         error: ''
     };
-    if (config.isK8) state.k8SelectMode = 8; // 默认选八
+    if (config.isK8) state.k8SelectMode = 10; // 默认选十
     return state;
 }
 
@@ -1890,7 +1890,7 @@ subpageContent.addEventListener('click', event => {
         if (vAct === 'randomTicket') {
             const config = LOTTERY_CONFIG[validatorState.game];
             if (config.isK8) {
-                const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 20).drawn;
+                const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 10).drawn;
                 validatorState.ticket = { mode: 'single', red: sortAsc(drawn), blue: [] };
             } else {
                 const t = generateLotteryByMachine(validatorState.game);
@@ -3652,7 +3652,7 @@ function renderK8Page(isAutoMode) {
         card.innerHTML = `
             <h3 class="auto-step-title">第一步：生成参考组</h3>
             <p class="auto-step-desc">
-                系统将生成 ${killGroupCount} 组模拟快乐8摇号（每组从1-80中摇出20个号），
+                系统将生成 ${killGroupCount} 组模拟快乐8摇号（每组从1-80中摇出10个号），
                 用第 ${killGroupCount} 组结果作为"杀号"，从剩余号码池中为你生成最终号码。
             </p>
         `;
@@ -3975,7 +3975,7 @@ function handleK8AutoStart() {
     const killGroupCount = getSelectorConfig()['k8']?.killGroupCount || 4;
     quickState.killGroups = [];
     for (let i = 0; i < killGroupCount; i++) {
-        const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 20).drawn;
+        const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 10).drawn;
         quickState.killGroups.push({ red: drawn, blue: [] });
     }
     const killGroup = quickState.killGroups[killGroupCount - 1];
@@ -4000,7 +4000,7 @@ let validatorState = null;
 function createValidatorState() {
     return {
         game: 'ssq',
-        k8SelectMode: 8,
+        k8SelectMode: 10,
         ticket: null,         // { mode, red, blue } 或 { mode, red } for k8
         windowSize: 100,      // 验证期数
         step: 'config',       // 'config' | 'result'
@@ -4045,11 +4045,11 @@ function buildValidatorConfigUI() {
     gameRow.appendChild(gameSwitch);
     wrap.appendChild(gameRow);
 
-    // k8 固定使用 20 个号码，不再显示玩法选项
+    // k8 固定使用 10 个号码（选十）
     if (vs.game === 'k8') {
         const k8Note = document.createElement('div');
         k8Note.className = 'auto-mode-note';
-        k8Note.textContent = '快乐8 空号校验：固定选 20 个号码（与开奖 20 个直接比对），统计轮空次数';
+        k8Note.textContent = '快乐8 历史验证器：固定选十（10个号码），统计每隔多少期完全不中（0命中）';
         wrap.appendChild(k8Note);
     }
 
@@ -4076,7 +4076,7 @@ function buildValidatorConfigUI() {
     const ticketTitle = document.createElement('p');
     ticketTitle.className = 'validator-section-title';
     if (vs.game === 'k8') {
-        ticketTitle.textContent = '输入 20 个号码（或随机生成）';
+        ticketTitle.textContent = '输入 10 个号码（选十，或随机生成）';
     } else {
         ticketTitle.textContent = '输入一注号码';
     }
@@ -4088,7 +4088,7 @@ function buildValidatorConfigUI() {
         const config = LOTTERY_CONFIG[vs.game];
         if (vs.ticket.mode === 'single') {
             if (config.isK8) {
-                ticketDisplay.innerHTML = `<span class="vt-label">20个号</span>${vs.ticket.red.map(n=>`<span class="mini-ball k8">${String(n).padStart(2,'0')}</span>`).join('')}`;
+                ticketDisplay.innerHTML = `<span class="vt-label">10个号</span>${vs.ticket.red.map(n=>`<span class="mini-ball k8">${String(n).padStart(2,'0')}</span>`).join('')}`;
             } else {
                 ticketDisplay.innerHTML = vs.ticket.red.map(n=>`<span class="mini-ball red">${String(n).padStart(2,'0')}</span>`).join('')
                     + (vs.ticket.blue && vs.ticket.blue.length ? vs.ticket.blue.map(n=>`<span class="mini-ball blue">${String(n).padStart(2,'0')}</span>`).join('') : '');
@@ -4134,7 +4134,7 @@ function buildValidatorConfigUI() {
 function getHitInfo(ticket, draw, game, k8SelectMode) {
     const config = LOTTERY_CONFIG[game];
     if (config.isK8) {
-        // K8 空号校验：直接比对 20 个号，不计算具体玩法，只记录命中球数
+        // K8 空号校验：直接比对 10 个号（选十），不计算具体玩法，只记录命中球数
         const drawSet = new Set(draw.red);
         const selected = ticket.red || [];
         const hitCount = selected.filter(n => drawSet.has(n)).length;
