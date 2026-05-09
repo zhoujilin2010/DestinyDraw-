@@ -1890,7 +1890,7 @@ subpageContent.addEventListener('click', event => {
         if (vAct === 'randomTicket') {
             const config = LOTTERY_CONFIG[validatorState.game];
             if (config.isK8) {
-                const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 10).drawn;
+                const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 20).drawn;
                 validatorState.ticket = { mode: 'single', red: sortAsc(drawn), blue: [] };
             } else {
                 const t = generateLotteryByMachine(validatorState.game);
@@ -3975,7 +3975,7 @@ function handleK8AutoStart() {
     const killGroupCount = getSelectorConfig()['k8']?.killGroupCount || 4;
     quickState.killGroups = [];
     for (let i = 0; i < killGroupCount; i++) {
-        const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 10).drawn;
+        const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 20).drawn;
         quickState.killGroups.push({ red: drawn, blue: [] });
     }
     const killGroup = quickState.killGroups[killGroupCount - 1];
@@ -4830,7 +4830,7 @@ async function runManualCheck() {
                 ticketRed = simulatePhysicalDrawFromPool(redPool, SSQ_SPECIAL_PICK).drawn;
             } else if (isK8) {
                 const pool = Array.from({ length: 80 }, (_, idx) => idx + 1);
-                ticketRed = simulatePhysicalDrawFromPool(pool, 10).drawn; // 固定选十（10球）
+                ticketRed = simulatePhysicalDrawFromPool(pool, 20).drawn; // 与开奖一致：每次从1-80摇出20球
             } else {
                 const redPool = Array.from({ length: config.redMax }, (_, idx) => idx + 1);
                 ticketRed = simulatePhysicalDrawFromPool(redPool, config.redCount).drawn;
