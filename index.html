@@ -10,59 +10,159 @@
     <main class="page-shell">
         <section id="homeView" class="home-view">
             <div class="hero-title-wrap">
-                <img src="logo.png" alt="Destiny Draw 买彩票 中大奖" class="hero-logo">
-                <span class="hero-version">v1.19</span>
+                <div class="logo-container">
+                    <div class="css-logo">
+                        <div class="logo-text">DestinyDraw</div>
+                        <div class="logo-subtitle">彩票助手 v1.19</div>
+                    </div>
+                    <div class="logo-balls">
+                        <div class="ball"></div>
+                        <div class="ball"></div>
+                        <div class="ball"></div>
+                        <div class="ball"></div>
+                    </div>
+                </div>
+                <p class="hero-tagline">
+                    专业的纯前端彩票选号工具，支持<strong>双色球、大乐透、快乐8</strong>，提供科学的<strong>随机算法、历史验证、智能策略</strong>分析
+                </p>
             </div>
 
             <div class="nav-grid" aria-label="功能导航">
+                <!-- 自动选号策略 -->
+                <div class="nav-section-label">🎯 智能选号策略</div>
                 <button class="nav-card" data-page="ssq-auto" type="button">
-                    <span class="nav-card-title">双色球自动选号</span>
-                    <span class="nav-card-desc">按策略自动分析并推荐双色球号码</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        双色球自动选号
+                    </span>
+                    <span class="nav-card-desc">AI策略分析推荐号码，基于4组参考号智能筛选优化</span>
+                    <span class="nav-card-badge" aria-hidden="true">AI</span>
                 </button>
 
                 <button class="nav-card" data-page="dlt-auto" type="button">
-                    <span class="nav-card-title">大乐透自助选号</span>
-                    <span class="nav-card-desc">按策略自动分析并推荐大乐透号码</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v20"></path>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                        大乐透自助选号
+                    </span>
+                    <span class="nav-card-desc">红球蓝球双维度杀号，从剩余球池智能生成最佳号码</span>
+                    <span class="nav-card-badge" aria-hidden="true">2D</span>
                 </button>
 
                 <button class="nav-card" data-page="k8-auto" type="button">
-                    <span class="nav-card-title">快乐8自动选号</span>
-                    <span class="nav-card-desc">生成参考号模拟快乐8摇奖，杀号后按玩法生成最终号码</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 12.222C22 6.888 17.5 2.5 12 2.5S2 6.888 2 12.222 6.5 22 12 22s10-4.378 10-9.778z"></path>
+                            <path d="m15 8.5-3 3-3-3"></path>
+                        </svg>
+                        快乐8自动选号
+                    </span>
+                    <span class="nav-card-desc">模拟快乐8摇奖过程，参考号生成+杀号组合全玩法覆盖</span>
+                    <span class="nav-card-badge" aria-hidden="true">K8</span>
                 </button>
 
+                <!-- 快速机选功能 -->
+                <div class="nav-section-label">⚡ 快速机选工具</div>
                 <button class="nav-card" data-page="ssq-quick" type="button">
-                    <span class="nav-card-title">机选双色球</span>
-                    <span class="nav-card-desc">随机生成号码，支持单式、复式、胆拖</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="14" width="7" height="7"></rect>
+                            <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
+                        机选双色球
+                    </span>
+                    <span class="nav-card-desc">单式/复式/胆拖随机生成，支持部分自选+部分随机混搭</span>
+                    <span class="nav-card-badge" aria-hidden="true">SSQ</span>
                 </button>
 
                 <button class="nav-card" data-page="dlt-quick" type="button">
-                    <span class="nav-card-title">机选大乐透</span>
-                    <span class="nav-card-desc">随机生成号码，支持单式、复式、胆拖</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                        </svg>
+                        机选大乐透
+                    </span>
+                    <span class="nav-card-desc">红球(1-35)蓝球(1-12)完全随机，多种玩法灵活选择</span>
+                    <span class="nav-card-badge" aria-hidden="true">DLT</span>
                 </button>
 
                 <button class="nav-card" data-page="k8-quick" type="button">
-                    <span class="nav-card-title">机选快乐8</span>
-                    <span class="nav-card-desc">支持选一到选十全玩法，可单式、复式或胆拖</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M16 8s-1-2-4-2s-4 2-4 2"></path>
+                            <line x1="9" x2="9.01" y1="15" y2="15"></line>
+                            <line x1="15" x2="15.01" y2="15"></line>
+                        </svg>
+                        机选快乐8
+                    </span>
+                    <span class="nav-card-desc">选一至选十全玩法支持，单式/复式/胆拖完全随机生成</span>
+                    <span class="nav-card-badge" aria-hidden="true">80</span>
                 </button>
 
+                <!-- 历史数据分析 -->
+                <div class="nav-section-label">📊 历史数据分析</div>
                 <button class="nav-card" data-page="ssq-miss" type="button">
-                    <span class="nav-card-title">错过100万了吗</span>
-                    <span class="nav-card-desc">输入你的号码，对比最近100期开奖，看看曾错过几等奖</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        错过100万了吗
+                    </span>
+                    <span class="nav-card-desc">输入历史持有号码，对比最近100期开奖查看曾错过奖项</span>
+                    <span class="nav-card-badge" aria-hidden="true">💸</span>
                 </button>
 
+                <!-- 趣味模拟 -->
+                <div class="nav-section-label">🎮 趣味模拟体验</div>
                 <button class="nav-card" data-page="dlt-when" type="button">
-                    <span class="nav-card-title">这辈子能中500万吗</span>
-                    <span class="nav-card-desc">硬核彩票人生模拟器，模拟买到一等奖要花多少年</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path>
+                            <path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path>
+                            <path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path>
+                        </svg>
+                        这辈子能中500万吗
+                    </span>
+                    <span class="nav-card-desc">硬核彩票人生模拟器，基于真实概率计算中奖年限与成本</span>
+                    <span class="nav-card-badge" aria-hidden="true">🎰</span>
                 </button>
 
+                <!-- 验证工具 -->
+                <div class="nav-section-label">🔍 号码验证工具</div>
                 <button class="nav-card" data-page="validator" type="button">
-                    <span class="nav-card-title">历史验证器</span>
-                    <span class="nav-card-desc">输入一注号码，与历史开奖对比，统计平均命中与全空轮次</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path>
+                            <path d="m9 12 2 2 4-4"></path>
+                        </svg>
+                        历史验证器
+                    </span>
+                    <span class="nav-card-desc">号码全量历史对比分析，计算平均命中率与全空概率</span>
+                    <span class="nav-card-badge" aria-hidden="true">✓</span>
                 </button>
 
                 <button class="nav-card" data-page="validation-log" type="button">
-                    <span class="nav-card-title">空号校验工具</span>
-                    <span class="nav-card-desc">手动选号进行一次性历史比对，查看校验结果与AI参数建议</span>
+                    <span class="nav-card-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                        空号校验工具
+                    </span>
+                    <span class="nav-card-desc">手动选号历史比对，校验结果记录与AI参数智能建议</span>
+                    <span class="nav-card-badge" aria-hidden="true">📈</span>
                 </button>
             </div>
         </section>
@@ -86,6 +186,23 @@
             </div>
         </section>
     </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-content">
+                <p class="footer-credit">
+                    DestinyDraw 彩票助手 v1.19 - 纯前端工具<br>
+                    使用 crypto.getRandomValues 安全随机数生成器
+                </p>
+                <p class="footer-disclaimer">
+                    本工具仅供娱乐参考，请理性购彩，量力而行
+                </p>
+                <p class="footer-note">
+                    彩票数据每日自动更新，历史分析结果仅供参考
+                </p>
+            </div>
+        </div>
+    </footer>
 
     <script src="script.js"></script>
 </body>
