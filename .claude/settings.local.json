@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat: 深度优化DestinyDraw前端设计 *)",
+      "Bash(git push *)",
+      "Bash(npx skills *)",
+      "WebFetch(domain:skills.sh)",
+      "Bash(git diff *)",
+      "Read(//tmp/**)",
+      "Bash(node -e ' *)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 update-data.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 update-data.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 -c ' *)",
+      "WebFetch(domain:aipay.alipay.com)",
+      "WebFetch(domain:mp.weixin.qq.com)",
+      "WebSearch",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

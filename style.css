@@ -2669,6 +2669,14 @@ code, pre {
     font-family: 'Geist Mono', monospace;
 }
 
+.slip-row-note {
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+    font-family: 'Geist Mono', monospace;
+    font-style: italic;
+}
+
 .slip-footer {
     display: flex;
     align-items: center;

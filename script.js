@@ -53,12 +53,12 @@ const LOTTERY_CONFIG = {
 
 const SUBPAGES = {
     'ssq-auto': {
-        title: '双色球自动选号',
+        title: '双色球智慧选号',
         desc: '自动生成 4 组参考号，以第 4 组红球为杀号，从剩余球池中按单式、复式或胆拖生成最终选号。',
         game: 'ssq'
     },
     'dlt-auto': {
-        title: '大乐透自助选号',
+        title: '大乐透智慧选号',
         desc: '自动生成 4 组参考号，以第 4 组红球与蓝球为杀号，从剩余球池中按单式、复式或胆拖生成最终选号。',
         game: 'dlt'
     },
@@ -83,7 +83,7 @@ const SUBPAGES = {
         game: 'dlt'
     },
     'k8-auto': {
-        title: '快乐8自动选号',
+        title: '快乐8智慧选号',
         desc: '生成4组参考号模拟快乐8摇奖，以第4组为杀号组，从剩余球池按选一到选十的玩法生成最终号码。',
         game: 'k8'
     },
@@ -445,6 +445,230 @@ function drawRemaining(max, excludedNumbers, count) {
     return simulatePhysicalDrawFromPool(pool, count).drawn;
 }
 
+/* ── 奇偶比 & 大小比 双维度约束系统 ── */
+
+/* 获取大小分界点：≤ midPoint 为小，> midPoint 为大 */
+function getMidPoint(game) {
+    var config = LOTTERY_CONFIG[game];
+    if (config.isK8) return 40;        // K8: 1-40 小, 41-80 大
+    var redMax = config.redMax;
+    return Math.floor(redMax / 2);      // SSQ: 16 (1-16小,17-33大); DLT: 17 (1-17小,18-35大)
+}
+
+/* 按奇偶比约束从号码池中抽取指定数量的奇数和偶数（单维度，保留向后兼容） */
+function drawWithOddEvenRatio(pool, oddNeeded, evenNeeded) {
+    var oddPool  = pool.filter(function(n) { return n % 2 === 1; });
+    var evenPool = pool.filter(function(n) { return n % 2 === 0; });
+    if (oddPool.length < oddNeeded || evenPool.length < evenNeeded) {
+        throw new Error('奇偶比约束无法满足：奇数池' + oddPool.length + '个（需' + oddNeeded + '），偶数池' + evenPool.length + '个（需' + evenNeeded + '）');
+    }
+    var oddDraw  = oddNeeded  > 0 ? simulatePhysicalDrawFromPool(oddPool,  oddNeeded).drawn  : [];
+    var evenDraw = evenNeeded > 0 ? simulatePhysicalDrawFromPool(evenPool, evenNeeded).drawn : [];
+    return [].concat(oddDraw, evenDraw).sort(function(a, b) { return a - b; });
+}
+
+/* 双维度约束：同时满足奇偶比和大小比，从4个象限分别抽取 */
+function drawWithDualConstraint(pool, oddNeeded, evenNeeded, bigNeeded, smallNeeded, game) {
+    var midPoint = getMidPoint(game);
+
+    // 将号码池划分为4个象限
+    var oddBig    = []; // 奇+大
+    var oddSmall  = []; // 奇+小
+    var evenBig   = []; // 偶+大
+    var evenSmall = []; // 偶+小
+
+    pool.forEach(function(n) {
+        var isOdd = n % 2 === 1;
+        var isBig = n > midPoint;
+        if (isOdd && isBig)       oddBig.push(n);
+        else if (isOdd && !isBig) oddSmall.push(n);
+        else if (!isOdd && isBig) evenBig.push(n);
+        else                      evenSmall.push(n);
+    });
+
+    // 解方程组求 oddBig 的可行范围
+    // oddBig + oddSmall = oddNeeded  →  oddSmall = oddNeeded - oddBig
+    // oddBig + evenBig  = bigNeeded  →  evenBig  = bigNeeded - oddBig
+    // evenBig + evenSmall = evenNeeded → evenSmall = evenNeeded - evenBig
+    var minOddBig = Math.max(0, oddNeeded - oddSmall.length, bigNeeded - evenBig.length, bigNeeded - evenNeeded);
+    var maxOddBig = Math.min(oddNeeded, bigNeeded, oddBig.length, evenSmall.length - evenNeeded + bigNeeded);
+
+    if (minOddBig > maxOddBig) {
+        throw new Error(
+            '双维度约束无法同时满足！\n' +
+            '奇偶要求 ' + oddNeeded + ':' + evenNeeded + '，大小要求 ' + bigNeeded + ':' + smallNeeded + '\n' +
+            '奇大池' + oddBig.length + ' 奇小池' + oddSmall.length + ' 偶大池' + evenBig.length + ' 偶小池' + evenSmall.length
+        );
+    }
+
+    var oddBigCount = minOddBig + secureRandomInt(maxOddBig - minOddBig + 1);
+    var oddSmallCount  = oddNeeded - oddBigCount;
+    var evenBigCount   = bigNeeded - oddBigCount;
+    var evenSmallCount = evenNeeded - evenBigCount;
+
+    var result = [];
+    if (oddBigCount    > 0) result = result.concat(simulatePhysicalDrawFromPool(oddBig,    oddBigCount).drawn);
+    if (oddSmallCount  > 0) result = result.concat(simulatePhysicalDrawFromPool(oddSmall,  oddSmallCount).drawn);
+    if (evenBigCount   > 0) result = result.concat(simulatePhysicalDrawFromPool(evenBig,   evenBigCount).drawn);
+    if (evenSmallCount > 0) result = result.concat(simulatePhysicalDrawFromPool(evenSmall, evenSmallCount).drawn);
+
+    return result.sort(function(a, b) { return a - b; });
+}
+
+/* 按大小比约束从号码池中抽取指定数量的大数和小数 */
+function drawWithBigSmallRatio(pool, bigNeeded, smallNeeded, game) {
+    var midPoint = getMidPoint(game);
+    var bigPool   = pool.filter(function(n) { return n > midPoint; });
+    var smallPool = pool.filter(function(n) { return n <= midPoint; });
+    if (bigPool.length < bigNeeded || smallPool.length < smallNeeded) {
+        throw new Error('大小比约束无法满足：大数池' + bigPool.length + '个（需' + bigNeeded + '），小数池' + smallPool.length + '个（需' + smallNeeded + '）');
+    }
+    var bigDraw   = bigNeeded   > 0 ? simulatePhysicalDrawFromPool(bigPool,   bigNeeded).drawn   : [];
+    var smallDraw = smallNeeded > 0 ? simulatePhysicalDrawFromPool(smallPool, smallNeeded).drawn : [];
+    return [].concat(bigDraw, smallDraw).sort(function(a, b) { return a - b; });
+}
+
+/* 从已选奇偶比列表中随机抽取一个，并随机选择极性方向 */
+function pickOddEvenRatio() {
+    if (!quickState || !quickState.oddEvenRatio || quickState.oddEvenRatio.length === 0) return null;
+    var arr = quickState.oddEvenRatio;
+    var picked = arr[secureRandomInt(arr.length)];
+    var parts = picked.split(':');
+    var a = parseInt(parts[0], 10);
+    var b = parseInt(parts[1], 10);
+
+    // 对称选项：随机选择极性方向（如 1:5 可能是 1奇5偶 或 5奇1偶）
+    if (a !== b && secureRandomInt(2) === 0) {
+        return { odd: b, even: a };
+    }
+    return { odd: a, even: b };
+}
+
+/* 从已选大小比列表中随机抽取一个 */
+function pickBigSmallRatio() {
+    if (!quickState || !quickState.bigSmallRatio || quickState.bigSmallRatio.length === 0) return null;
+    var arr = quickState.bigSmallRatio;
+    var picked = arr[secureRandomInt(arr.length)];
+    var parts = picked.split(':');
+    return { big: parseInt(parts[0], 10), small: parseInt(parts[1], 10) };
+}
+
+/* 获取当前游戏/模式下可用的奇偶比选项（对称配对） */
+function getOddEvenOptions(game) {
+    var config = LOTTERY_CONFIG[game];
+    var isK8 = config.isK8;
+    var totalCount;
+
+    if (isK8) {
+        totalCount = quickState ? (quickState.k8SelectMode || 10) : 10;
+    } else {
+        if (!quickState) return [{ value: null, label: '不限制' }];
+        if (quickState.mode === 'single') {
+            totalCount = config.redCount;
+        } else if (quickState.mode === 'multiple') {
+            totalCount = quickState.form.multipleRedTotal;
+        } else {
+            totalCount = quickState.form.redDanTotal + quickState.form.redTuoTotal;
+        }
+    }
+
+    var options = [{ value: null, label: '不限制' }];
+
+    if (totalCount >= 2) {
+        // 对称配对：a:b 同时覆盖 a:b 和 b:a 两个方向
+        var half = Math.floor(totalCount / 2);
+        if (game === 'ssq' && totalCount === 6) {
+            options.push({ value: '1:5', label: '1:5 / 5:1' });
+            options.push({ value: '2:4', label: '2:4 / 4:2' });
+            options.push({ value: '3:3', label: '3:3' });
+        } else if (game === 'dlt' && totalCount === 5) {
+            options.push({ value: '1:4', label: '1:4 / 4:1' });
+            options.push({ value: '2:3', label: '2:3 / 3:2' });
+        } else {
+            for (var odd = 1; odd <= half; odd += 1) {
+                var even = totalCount - odd;
+                if (even >= 1) {
+                    if (odd === even) {
+                        options.push({ value: odd + ':' + even, label: odd + ':' + even });
+                    } else {
+                        options.push({ value: odd + ':' + even, label: odd + ':' + even + ' / ' + even + ':' + odd });
+                    }
+                }
+            }
+        }
+    }
+
+    return options;
+}
+
+/* 获取当前游戏/模式下可用的大小比选项 */
+function getBigSmallOptions(game) {
+    var config = LOTTERY_CONFIG[game];
+    var isK8 = config.isK8;
+    var totalCount;
+
+    if (isK8) {
+        totalCount = quickState ? (quickState.k8SelectMode || 10) : 10;
+    } else {
+        if (!quickState) return [{ value: null, label: '不限制' }];
+        if (quickState.mode === 'single') {
+            totalCount = config.redCount;
+        } else if (quickState.mode === 'multiple') {
+            totalCount = quickState.form.multipleRedTotal;
+        } else {
+            totalCount = quickState.form.redDanTotal + quickState.form.redTuoTotal;
+        }
+    }
+
+    var options = [{ value: null, label: '不限制' }];
+
+    if (totalCount >= 2) {
+        for (var big = 0; big <= totalCount; big += 1) {
+            var small = totalCount - big;
+            // 对称配对：0:6 和 6:0 共用一个按钮
+            if (big < small) {
+                options.push({ value: big + ':' + small, label: big + '大' + small + '小 / ' + small + '大' + big + '小' });
+            } else if (big === small) {
+                options.push({ value: big + ':' + small, label: big + '大' + small + '小（均衡）' });
+            }
+            // big > small 已在上面成对覆盖，跳过
+        }
+    }
+
+    return options;
+}
+
+/* 从大小比选项中随机选择极性方向 */
+function resolveBigSmallRatio(bsPicked) {
+    if (!bsPicked) return null;
+    // 随机选择极性
+    if (bsPicked.big !== bsPicked.small && secureRandomInt(2) === 0) {
+        return { big: bsPicked.small, small: bsPicked.big };
+    }
+    return bsPicked;
+}
+
+/* 计算并返回号码集合的奇偶比字符串（用于复式展示） */
+function calcOddEvenRatioStr(numbers) {
+    if (!numbers || numbers.length === 0) return '';
+    var oddCount  = numbers.filter(function(n) { return n % 2 === 1; }).length;
+    var evenCount = numbers.length - oddCount;
+    var oddPct  = Math.round(oddCount  / numbers.length * 100);
+    var evenPct = Math.round(evenCount / numbers.length * 100);
+    return '奇偶比 ' + oddCount + ':' + evenCount + '（奇数' + oddPct + '% / 偶数' + evenPct + '%）';
+}
+
+/* 计算并返回号码集合的大小比字符串（用于复式展示） */
+function calcBigSmallRatioStr(numbers, game) {
+    if (!numbers || numbers.length === 0) return '';
+    var midPoint = getMidPoint(game);
+    var bigCount   = numbers.filter(function(n) { return n > midPoint; }).length;
+    var smallCount = numbers.length - bigCount;
+    var bigPct   = Math.round(bigCount   / numbers.length * 100);
+    var smallPct = Math.round(smallCount / numbers.length * 100);
+    return '大小比 ' + bigCount + ':' + smallCount + '（大数' + bigPct + '% / 小数' + smallPct + '%）';
+}
+
 function renderBallRow(numbers, color, manualSet) {
     const row = document.createElement('div');
     row.className = 'ball-row';
@@ -476,6 +700,8 @@ function createQuickState(game, pageKey) {
         game,
         mode: 'single',
         similarityThreshold: 0.75,
+        oddEvenRatio: [],
+        bigSmallRatio: [],
         form: {
             generateCount: 2,
             multipleRedTotal: config.defaultMultipleRed,
@@ -507,6 +733,8 @@ function createAutoState(game, pageKey) {
         k8GroupsExpanded: false,
         mode: 'single',
         similarityThreshold: 0.75,
+        oddEvenRatio: [],
+        bigSmallRatio: [],
         form: {
             generateCount: 2,
             multipleRedTotal: config.defaultMultipleRed,
@@ -743,6 +971,12 @@ function renderReceiptResults(results, game, mode, form) {
             balls.textContent = `红球 ${formatNums(ticket.red)}   蓝球 ${formatNums(ticket.blue)}`;
         }
         row.appendChild(balls);
+        if (ticket.summary) {
+            var sumNote = document.createElement('div');
+            sumNote.className = 'slip-row-note';
+            sumNote.textContent = ticket.summary;
+            row.appendChild(sumNote);
+        }
         list.appendChild(row);
     });
 
@@ -953,6 +1187,84 @@ function renderSimilarityControl() {
     return card;
 }
 
+function renderOddEvenControl() {
+    if (!quickState) return null;
+    var selected = quickState.oddEvenRatio || [];
+    var opts = getOddEvenOptions(quickState.game);
+    if (opts.length <= 1) return null;
+
+    // 过滤掉因模式切换而不再有效的已选选项
+    var validValues = opts.map(function(o) { return o.value; });
+    quickState.oddEvenRatio = selected.filter(function(v) { return validValues.indexOf(v) !== -1; });
+    selected = quickState.oddEvenRatio;
+
+    var card = document.createElement('div');
+    card.className = 'config-card';
+    card.style.padding = '14px 18px';
+
+    var header = document.createElement('p');
+    header.style.cssText = 'margin:0 0 10px;font-size:.85rem;color:var(--text-secondary);font-weight:600;font-family:Geist Mono,monospace;';
+    header.textContent = '🤡 号码奇偶比控制';
+    card.appendChild(header);
+
+    var hint = document.createElement('p');
+    hint.style.cssText = 'margin:0 0 12px;font-size:.8rem;color:var(--text-tertiary);line-height:1.6;font-family:Geist Mono,monospace;';
+    hint.textContent = '可多选。每个选项自动覆盖对称方向（如 1:5 同时包含 1奇5偶 和 5奇1偶）。复式/胆拖模式下会显示各组合的奇偶占比。';
+    card.appendChild(hint);
+
+    var row = document.createElement('div');
+    row.className = 'mode-switch';
+    opts.forEach(function(opt) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mode-tab' + (selected.indexOf(opt.value) !== -1 ? ' active' : '');
+        btn.dataset.oeRatio = opt.value === null ? '' : opt.value;
+        btn.textContent = opt.label;
+        row.appendChild(btn);
+    });
+    card.appendChild(row);
+    return card;
+}
+
+function renderBigSmallControl() {
+    if (!quickState) return null;
+    var selected = quickState.bigSmallRatio || [];
+    var opts = getBigSmallOptions(quickState.game);
+    if (opts.length <= 1) return null;
+
+    // 过滤掉因模式切换而不再有效的已选选项
+    var validValues = opts.map(function(o) { return o.value; });
+    quickState.bigSmallRatio = selected.filter(function(v) { return validValues.indexOf(v) !== -1; });
+    selected = quickState.bigSmallRatio;
+
+    var card = document.createElement('div');
+    card.className = 'config-card';
+    card.style.padding = '14px 18px';
+
+    var header = document.createElement('p');
+    header.style.cssText = 'margin:0 0 10px;font-size:.85rem;color:var(--text-secondary);font-weight:600;font-family:Geist Mono,monospace;';
+    header.textContent = '🤡 号码大小比控制';
+    card.appendChild(header);
+
+    var hint = document.createElement('p');
+    hint.style.cssText = 'margin:0 0 12px;font-size:.8rem;color:var(--text-tertiary);line-height:1.6;font-family:Geist Mono,monospace;';
+    hint.textContent = '可多选。每个选项自动覆盖对称方向。与奇偶比同时选中时，两者必须同时满足，否则提示生成失败。';
+    card.appendChild(hint);
+
+    var row = document.createElement('div');
+    row.className = 'mode-switch';
+    opts.forEach(function(opt) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mode-tab' + (selected.indexOf(opt.value) !== -1 ? ' active' : '');
+        btn.dataset.bsRatio = opt.value === null ? '' : opt.value;
+        btn.textContent = opt.label;
+        row.appendChild(btn);
+    });
+    card.appendChild(row);
+    return card;
+}
+
 function renderQuickPage() {
     if (!quickState) return;
     // k8 使用专用页面
@@ -983,6 +1295,7 @@ function renderQuickPage() {
         btn.dataset.mode = m;
         btn.type = 'button';
         btn.textContent = m === 'single' ? '单式' : m === 'multiple' ? '复式' : '胆拖';
+        if (quickState.generating) btn.disabled = true;
         switcher.appendChild(btn);
     });
     builder.appendChild(switcher);
@@ -997,6 +1310,12 @@ function renderQuickPage() {
 
     const simCtrl = renderSimilarityControl();
     if (simCtrl) builder.appendChild(simCtrl);
+
+    const oeCtrl = renderOddEvenControl();
+    if (oeCtrl) builder.appendChild(oeCtrl);
+
+    const bsCtrl = renderBigSmallControl();
+    if (bsCtrl) builder.appendChild(bsCtrl);
 
     const actionBar = document.createElement('div');
     actionBar.className = 'actions-bar';
@@ -1251,7 +1570,27 @@ function generateSingleTicket(game) {
     const redMax = isK8 ? config.ballMax : config.redMax;
     const redPool  = buildPool(redMax, killedRed);
     const bluePool = config.blueCount > 0 ? buildPool(config.blueMax, killedBlue) : [];
-    const red  = simulatePhysicalDrawFromPool(redPool,  sc).drawn;
+
+    var red;
+    var oePicked = pickOddEvenRatio();
+    var bsPicked = pickBigSmallRatio();
+    bsPicked = resolveBigSmallRatio(bsPicked);
+
+    try {
+        if (oePicked && bsPicked) {
+            red = drawWithDualConstraint(redPool, oePicked.odd, oePicked.even, bsPicked.big, bsPicked.small, game);
+        } else if (oePicked) {
+            red = drawWithOddEvenRatio(redPool, oePicked.odd, oePicked.even);
+        } else if (bsPicked) {
+            red = drawWithBigSmallRatio(redPool, bsPicked.big, bsPicked.small, game);
+        } else {
+            red = simulatePhysicalDrawFromPool(redPool, sc).drawn;
+        }
+    } catch (e) {
+        quickState.error = e.message;
+        red = simulatePhysicalDrawFromPool(redPool, sc).drawn;
+    }
+
     const blue = config.blueCount > 0 ? simulatePhysicalDrawFromPool(bluePool, config.blueCount).drawn : [];
     return {
         mode: 'single',
@@ -1274,17 +1613,82 @@ function generateMultipleTicket(game) {
     const redRandomCount  = quickState.form.multipleRedTotal  - redManual.length;
     const blueRandomCount = isK8 ? 0 : (quickState.form.multipleBlueTotal - blueManual.length);
 
-    const redRandom  = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
+    var redRandom;
+    var summaryParts = [];
+    var oePicked = pickOddEvenRatio();
+    var bsPicked = pickBigSmallRatio();
+    bsPicked = resolveBigSmallRatio(bsPicked);
+
+    var manualOdd   = redManual.filter(function(n) { return n % 2 === 1; }).length;
+    var manualEven  = redManual.filter(function(n) { return n % 2 === 0; }).length;
+    var midPoint = getMidPoint(game);
+    var manualBig   = redManual.filter(function(n) { return n > midPoint; }).length;
+    var manualSmall = redManual.filter(function(n) { return n <= midPoint; }).length;
+
+    var remainingPool = buildPool(redMax, new Set([].concat(redManual, killedRed)));
+
+    if (oePicked && bsPicked && redRandomCount > 0) {
+        var randOdd  = Math.max(0, oePicked.odd  - manualOdd);
+        var randEven = Math.max(0, oePicked.even - manualEven);
+        var randBig  = Math.max(0, bsPicked.big   - manualBig);
+        var randSmall = Math.max(0, bsPicked.small - manualSmall);
+        // 调整使奇数+偶数 = 大数+小数 = redRandomCount
+        if (randOdd + randEven !== redRandomCount) { randEven = redRandomCount - randOdd; }
+        if (randBig + randSmall !== redRandomCount) { randSmall = redRandomCount - randBig; }
+        if (randOdd < 0) { randOdd = 0; randEven = redRandomCount; }
+        if (randEven < 0) { randEven = 0; randOdd = redRandomCount; }
+        if (randBig < 0) { randBig = 0; randSmall = redRandomCount; }
+        if (randSmall < 0) { randSmall = 0; randBig = redRandomCount; }
+        try {
+            redRandom = drawWithDualConstraint(remainingPool, randOdd, randEven, randBig, randSmall, game);
+        } catch (e) {
+            quickState.error = e.message;
+            redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
+        }
+    } else if (oePicked && redRandomCount > 0) {
+        var randOdd2  = Math.max(0, oePicked.odd  - manualOdd);
+        var randEven2 = Math.max(0, oePicked.even - manualEven);
+        if (randOdd2 + randEven2 !== redRandomCount) { randEven2 = redRandomCount - randOdd2; }
+        if (randOdd2 < 0) { randOdd2 = 0; randEven2 = redRandomCount; }
+        if (randEven2 < 0) { randEven2 = 0; randOdd2 = redRandomCount; }
+        try {
+            redRandom = drawWithOddEvenRatio(remainingPool, randOdd2, randEven2);
+        } catch (e) {
+            quickState.error = e.message;
+            redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
+        }
+    } else if (bsPicked && redRandomCount > 0) {
+        var randBig2   = Math.max(0, bsPicked.big   - manualBig);
+        var randSmall2 = Math.max(0, bsPicked.small - manualSmall);
+        if (randBig2 + randSmall2 !== redRandomCount) { randSmall2 = redRandomCount - randBig2; }
+        if (randBig2 < 0) { randBig2 = 0; randSmall2 = redRandomCount; }
+        if (randSmall2 < 0) { randSmall2 = 0; randBig2 = redRandomCount; }
+        try {
+            redRandom = drawWithBigSmallRatio(remainingPool, randBig2, randSmall2, game);
+        } catch (e) {
+            quickState.error = e.message;
+            redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
+        }
+    } else {
+        redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
+    }
+
+    var allRed = sortAsc([].concat(redManual, redRandom));
+    if (quickState.form.multipleRedTotal > config.redCount) {
+        summaryParts.push(calcOddEvenRatioStr(allRed));
+        summaryParts.push(calcBigSmallRatioStr(allRed, game));
+    }
+
     const blueRandom = isK8 ? [] : drawRemaining(config.blueMax, [...blueManual, ...killedBlue], blueRandomCount);
 
     const sc = isK8 ? (quickState ? quickState.k8SelectMode || 8 : 8) : undefined;
     return {
         mode: 'multiple',
-        red:  sortAsc([...redManual,  ...redRandom]),
+        red:  allRed,
         blue: sortAsc([...blueManual, ...blueRandom]),
         k8SelectMode: isK8 ? sc : undefined,
         manual: { red: new Set(redManual), blue: new Set(blueManual) },
-        summary: ''
+        summary: summaryParts.join(' | ')
     };
 }
 
@@ -1305,11 +1709,93 @@ function generateDanTuoTicket(game) {
     const blueDanManual = isK8 ? [] : sortAsc([...quickState.custom.blueDan]);
     const blueTuoManual = isK8 ? [] : sortAsc([...quickState.custom.blueTuo]);
 
-    const redDan = fillDanArea(redMax, redDanManual, [...redTuoManual, ...killedRed], quickState.form.redDanTotal);
-    const redTuo = sortAsc([
-        ...redTuoManual,
-        ...drawRemaining(redMax, [...redDan, ...redTuoManual, ...killedRed], quickState.form.redTuoTotal - redTuoManual.length)
-    ]);
+    var redDan, redTuo;
+    var oePicked = pickOddEvenRatio();
+    var bsPicked = pickBigSmallRatio();
+    bsPicked = resolveBigSmallRatio(bsPicked);
+    var totalRed = quickState.form.redDanTotal + quickState.form.redTuoTotal;
+    var summaryParts = ['红胆码自选 ' + redDanManual.length + ' 个、随机补 ' + (quickState.form.redDanTotal - redDanManual.length) + ' 个；红拖码自选 ' + redTuoManual.length + ' 个、随机补 ' + (quickState.form.redTuoTotal - redTuoManual.length) + ' 个。'];
+
+    var danRandomNeeded = quickState.form.redDanTotal - redDanManual.length;
+    var tuoRandomNeeded = quickState.form.redTuoTotal - redTuoManual.length;
+    var totalRandomNeeded = totalRed - (redDanManual.length + redTuoManual.length);
+    var allManual = [].concat(redDanManual, redTuoManual);
+    var hasConstraint = oePicked || bsPicked;
+
+    if (hasConstraint && totalRandomNeeded > 0) {
+        var midPoint = getMidPoint(game);
+        var manualOdd   = allManual.filter(function(n) { return n % 2 === 1; }).length;
+        var manualEven  = allManual.filter(function(n) { return n % 2 === 0; }).length;
+        var manualBig   = allManual.filter(function(n) { return n > midPoint; }).length;
+        var manualSmall = allManual.filter(function(n) { return n <= midPoint; }).length;
+
+        var blockedAll = new Set([].concat(allManual, killedRed));
+        var remainingPool = buildPool(redMax, blockedAll);
+
+        var randomDraw;
+        try {
+            if (oePicked && bsPicked) {
+                var randOdd  = Math.max(0, oePicked.odd  - manualOdd);
+                var randEven = Math.max(0, oePicked.even - manualEven);
+                var randBig  = Math.max(0, bsPicked.big   - manualBig);
+                var randSmall = Math.max(0, bsPicked.small - manualSmall);
+                if (randOdd + randEven !== totalRandomNeeded) { randEven = totalRandomNeeded - randOdd; }
+                if (randBig + randSmall !== totalRandomNeeded) { randSmall = totalRandomNeeded - randBig; }
+                if (randOdd < 0) { randOdd = 0; randEven = totalRandomNeeded; }
+                if (randEven < 0) { randEven = 0; randOdd = totalRandomNeeded; }
+                if (randBig < 0) { randBig = 0; randSmall = totalRandomNeeded; }
+                if (randSmall < 0) { randSmall = 0; randBig = totalRandomNeeded; }
+                randomDraw = drawWithDualConstraint(remainingPool, randOdd, randEven, randBig, randSmall, game);
+            } else if (oePicked) {
+                var randOdd2  = Math.max(0, oePicked.odd  - manualOdd);
+                var randEven2 = Math.max(0, oePicked.even - manualEven);
+                if (randOdd2 + randEven2 !== totalRandomNeeded) { randEven2 = totalRandomNeeded - randOdd2; }
+                if (randOdd2 < 0) { randOdd2 = 0; randEven2 = totalRandomNeeded; }
+                if (randEven2 < 0) { randEven2 = 0; randOdd2 = totalRandomNeeded; }
+                randomDraw = drawWithOddEvenRatio(remainingPool, randOdd2, randEven2);
+            } else if (bsPicked) {
+                var randBig2   = Math.max(0, bsPicked.big   - manualBig);
+                var randSmall2 = Math.max(0, bsPicked.small - manualSmall);
+                if (randBig2 + randSmall2 !== totalRandomNeeded) { randSmall2 = totalRandomNeeded - randBig2; }
+                if (randBig2 < 0) { randBig2 = 0; randSmall2 = totalRandomNeeded; }
+                if (randSmall2 < 0) { randSmall2 = 0; randBig2 = totalRandomNeeded; }
+                randomDraw = drawWithBigSmallRatio(remainingPool, randBig2, randSmall2, game);
+            }
+        } catch (e) {
+            quickState.error = e.message;
+            randomDraw = simulatePhysicalDrawFromPool(remainingPool, totalRandomNeeded).drawn;
+        }
+
+        // 将随机号码分配到胆码和拖码中（先用完胆码需求，剩余给拖码）
+        if (danRandomNeeded > 0 && randomDraw.length >= danRandomNeeded) {
+            redDan = sortAsc([].concat(redDanManual, randomDraw.slice(0, danRandomNeeded)));
+        } else {
+            redDan = sortAsc([].concat(redDanManual));
+        }
+        var remainingForTuo = randomDraw.slice(danRandomNeeded);
+        if (tuoRandomNeeded > 0 && remainingForTuo.length >= tuoRandomNeeded) {
+            redTuo = sortAsc([].concat(redTuoManual, remainingForTuo.slice(0, tuoRandomNeeded)));
+        } else {
+            var danSet = new Set(redDan);
+            var blockedTuo = new Set([].concat(redTuoManual, killedRed, [...danSet]));
+            var tuoPool = buildPool(redMax, blockedTuo);
+            redTuo = sortAsc([].concat(redTuoManual, simulatePhysicalDrawFromPool(tuoPool, tuoRandomNeeded).drawn));
+        }
+    } else {
+        redDan = fillDanArea(redMax, redDanManual, [...redTuoManual, ...killedRed], quickState.form.redDanTotal);
+        redTuo = sortAsc([
+            ...redTuoManual,
+            ...drawRemaining(redMax, [...redDan, ...redTuoManual, ...killedRed], quickState.form.redTuoTotal - redTuoManual.length)
+        ]);
+    }
+
+    // 复式/胆拖展示奇偶+大小占比
+    if (totalRed > config.redCount) {
+        var allRed = sortAsc([].concat(redDan, redTuo));
+        summaryParts.push(calcOddEvenRatioStr(allRed));
+        summaryParts.push(calcBigSmallRatioStr(allRed, game));
+    }
+
     const blueDan = isK8 ? [] : fillDanArea(config.blueMax, blueDanManual, [...blueTuoManual, ...killedBlue], quickState.form.blueDanTotal);
     const blueTuo = isK8 ? [] : sortAsc([
         ...blueTuoManual,
@@ -1328,7 +1814,7 @@ function generateDanTuoTicket(game) {
             blueDan: new Set(blueDanManual),
             blueTuo: new Set(blueTuoManual)
         },
-        summary: `红胆码自选 ${redDanManual.length} 个、随机补 ${quickState.form.redDanTotal - redDanManual.length} 个；红拖码自选 ${redTuoManual.length} 个、随机补 ${quickState.form.redTuoTotal - redTuoManual.length} 个。`
+        summary: summaryParts.join(' | ')
     };
 }
 
@@ -1408,20 +1894,28 @@ async function handleGenerateQuick() {
     quickState.generating = true;
     renderQuickPage();
 
+    // 捕获生成开始时的模式与参数，防止循环中状态被意外修改
+    const lockedMode  = quickState.mode;
+    const lockedGame  = quickState.game;
+    const lockedCount = quickState.form.generateCount;
+    const needAutoDelay = quickState.isAutoMode && lockedCount > 1;
+
     try {
         const results = [];
-        const needAutoDelay = quickState.isAutoMode && quickState.form.generateCount > 1;
 
-        for (let i = 0; i < quickState.form.generateCount; i += 1) {
+        for (let i = 0; i < lockedCount; i += 1) {
             // 无论是否自动模式，多注生成均应用差异化逻辑，避免连续出现大量重复号码
-            results.push(createAutoDiverseTicket(quickState.game, quickState.mode, results));
+            results.push(createAutoDiverseTicket(lockedGame, lockedMode, results));
 
-            if (needAutoDelay && i < quickState.form.generateCount - 1) {
+            if (needAutoDelay && i < lockedCount - 1) {
                 await waitForNextAutoGroup();
             }
         }
 
-        quickState.error = '';
+        // 只清空校验错误，保留生成过程中产生的约束错误
+        if (!quickState.error || quickState.error.indexOf('约束') === -1) {
+            quickState.error = '';
+        }
         quickState.results = results;
     } finally {
         quickState.generating = false;
@@ -1665,8 +2159,56 @@ subpageContent.addEventListener('click', event => {
     // ── 重号控制：相似度阈值切换 ──
     const simBtn = event.target.closest('[data-sim-threshold]');
     if (simBtn && quickState) {
+        if (quickState.generating) return;
         const val = parseFloat(simBtn.dataset.simThreshold);
         quickState.similarityThreshold = isNaN(val) ? Infinity : val;
+        quickState.results = [];
+        quickState.error = '';
+        rerenderPage();
+        return;
+    }
+
+    // ── 奇偶比控制：多选切换 ──
+    const oeBtn = event.target.closest('[data-oe-ratio]');
+    if (oeBtn && quickState) {
+        if (quickState.generating) return;
+        var ratioVal = oeBtn.dataset.oeRatio || null; // '' → null（不限制）
+        if (!quickState.oddEvenRatio) quickState.oddEvenRatio = [];
+        var arr = quickState.oddEvenRatio;
+        if (ratioVal === null) {
+            // 点击"不限制"：清空所有选择
+            quickState.oddEvenRatio = [];
+        } else {
+            var idx = arr.indexOf(ratioVal);
+            if (idx !== -1) {
+                arr.splice(idx, 1); // 已选中 → 取消
+            } else {
+                arr.push(ratioVal);  // 未选中 → 加入
+            }
+        }
+        quickState.results = [];
+        quickState.error = '';
+        rerenderPage();
+        return;
+    }
+
+    // ── 大小比控制：多选切换 ──
+    const bsBtn = event.target.closest('[data-bs-ratio]');
+    if (bsBtn && quickState) {
+        if (quickState.generating) return;
+        var bsVal = bsBtn.dataset.bsRatio || null;
+        if (!quickState.bigSmallRatio) quickState.bigSmallRatio = [];
+        var bsArr = quickState.bigSmallRatio;
+        if (bsVal === null) {
+            quickState.bigSmallRatio = [];
+        } else {
+            var bsIdx = bsArr.indexOf(bsVal);
+            if (bsIdx !== -1) {
+                bsArr.splice(bsIdx, 1);
+            } else {
+                bsArr.push(bsVal);
+            }
+        }
         quickState.results = [];
         quickState.error = '';
         rerenderPage();
@@ -1727,6 +2269,7 @@ subpageContent.addEventListener('click', event => {
 
     const modeTab = event.target.closest('[data-mode]');
     if (modeTab && quickState) {
+        if (quickState.generating) return; // 生成中禁止切换模式
         quickState.mode = modeTab.dataset.mode;
         quickState.error = '';
         quickState.results = [];
@@ -3691,6 +4234,7 @@ function renderK8Page(isAutoMode) {
         btn.className = 'mode-tab' + (st.mode === m ? ' active' : '');
         btn.dataset.mode = m;
         if (m === 'dantuo' && sc < 2) btn.disabled = true;
+        if (st.generating) btn.disabled = true;
         btn.textContent = modeLabels[m];
         switcher.appendChild(btn);
     });
@@ -3706,6 +4250,12 @@ function renderK8Page(isAutoMode) {
 
     const simCtrlK8Cfg = renderSimilarityControl();
     if (simCtrlK8Cfg) builder.appendChild(simCtrlK8Cfg);
+
+    const oeCtrlK8 = renderOddEvenControl();
+    if (oeCtrlK8) builder.appendChild(oeCtrlK8);
+
+    const bsCtrlK8 = renderBigSmallControl();
+    if (bsCtrlK8) builder.appendChild(bsCtrlK8);
 
     const actionBar = document.createElement('div');
     actionBar.className = 'actions-bar';
@@ -3827,6 +4377,12 @@ function renderK8Results(results, sc) {
             balls.textContent = `选号 ${formatNums(ticket.red)}`;
         }
         row.appendChild(balls);
+        if (ticket.summary) {
+            var k8SumNote = document.createElement('div');
+            k8SumNote.className = 'slip-row-note';
+            k8SumNote.textContent = ticket.summary;
+            row.appendChild(k8SumNote);
+        }
         list.appendChild(row);
     });
 
