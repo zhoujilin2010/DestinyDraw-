@@ -284,7 +284,7 @@ function calculateTicketCount(game, mode, form) {
 
 /* 格式化号码数组：每个号码两位，空格分隔 */
 function formatNums(numbers) {
-    return numbers.map(n => String(n).padStart(2, '0')).join(' ');
+    return numbers.map(n => formatNumber(n)).join(' ');
 }
 
 const AUTO_GROUP_MIN_DELAY_MS = 140;
@@ -326,6 +326,55 @@ function secureRandomInt(maxExclusive) {
 
 function formatNumber(number) {
     return String(number).padStart(2, '0');
+}
+
+/* ── DOM 安全创建助手 ── */
+function domEl(tag, className, textOrChildren) {
+    var el = document.createElement(tag);
+    if (className) el.className = className;
+    if (typeof textOrChildren === 'string') {
+        el.textContent = textOrChildren;
+    } else if (textOrChildren) {
+        el.appendChild(textOrChildren);
+    }
+    return el;
+}
+function setText(el, text) { el.textContent = text; return el; }
+
+/* ── Toast 通知组件 ── */
+const TOAST_ICONS = { success: '✓', error: '✗', info: 'ℹ', warning: '⚠' };
+function showToast(message, type) {
+    type = type || 'info';
+    var container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast toast--' + type;
+    var icon = document.createElement('span');
+    icon.className = 'toast__icon';
+    icon.textContent = TOAST_ICONS[type] || '';
+    var body = document.createElement('span');
+    body.className = 'toast__body';
+    body.textContent = message;
+    toast.appendChild(icon);
+    toast.appendChild(body);
+    container.appendChild(toast);
+    var timer = setTimeout(function() {
+        toast.classList.add('toast--exit');
+        setTimeout(function() {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+    }, 3200);
+    toast.addEventListener('click', function() {
+        clearTimeout(timer);
+        toast.classList.add('toast--exit');
+        setTimeout(function() {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+    });
 }
 
 function createBallElement(number, color, isManual) {
@@ -611,7 +660,8 @@ function renderQuickPicker(title, group, color, max, selectedSet, limit, exclude
 
     const header = document.createElement('div');
     header.className = 'picker-header';
-    header.innerHTML = `<h4>${title}</h4><span>已自选 ${selectedSet.size} / ${limit}</span>`;
+    header.appendChild(domEl('h4', '', title));
+    header.appendChild(domEl('span', '', '已自选 ' + selectedSet.size + ' / ' + limit));
     card.appendChild(header);
 
     const tip = document.createElement('p');
@@ -660,7 +710,8 @@ function renderReceiptResults(results, game, mode, form) {
     const titleRow = document.createElement('div');
     titleRow.className = 'slip-header';
     const modeLabel = mode === 'single' ? '单式' : mode === 'multiple' ? '复式' : '胆拖';
-    titleRow.innerHTML = `<span class="slip-title">选号单</span><span class="slip-meta">${config.name} · ${modeLabel}</span>`;
+    titleRow.appendChild(domEl('span', 'slip-title', '选号单'));
+    titleRow.appendChild(domEl('span', 'slip-meta', config.name + ' · ' + modeLabel));
     wrapper.appendChild(titleRow);
 
     // 各组列表
@@ -720,7 +771,18 @@ function renderReceiptResults(results, game, mode, form) {
     const totalCost    = allTickets * 2;
     const footer = document.createElement('div');
     footer.className = 'slip-footer';
-    footer.innerHTML = `<span>共 <strong>${results.length + killNotes}</strong> 组 · <strong>${allTickets}</strong> 注</span><span class="slip-cost">¥ ${totalCost.toFixed(2)}</span>`;
+    var footerLeft = domEl('span', '', '');
+    var strong1 = document.createElement('strong');
+    strong1.textContent = results.length + killNotes;
+    footerLeft.appendChild(document.createTextNode('共 '));
+    footerLeft.appendChild(strong1);
+    var strong2 = document.createElement('strong');
+    strong2.textContent = allTickets;
+    footerLeft.appendChild(document.createTextNode(' 组 · '));
+    footerLeft.appendChild(strong2);
+    footerLeft.appendChild(document.createTextNode(' 注'));
+    footer.appendChild(footerLeft);
+    footer.appendChild(domEl('span', 'slip-cost', '¥ ' + totalCost.toFixed(2)));
     wrapper.appendChild(footer);
 
     // 一键复制按钮
@@ -868,12 +930,12 @@ function renderSimilarityControl() {
     card.style.padding = '14px 18px';
 
     const header = document.createElement('p');
-    header.style.cssText = 'margin:0 0 10px;font-size:.88rem;color:var(--muted);font-weight:600;';
+    header.style.cssText = 'margin:0 0 10px;font-size:.85rem;color:var(--text-secondary);font-weight:600;font-family:Geist Mono,monospace;';
     header.textContent = '组间重号控制';
     card.appendChild(header);
 
     const hint = document.createElement('p');
-    hint.style.cssText = 'margin:0 0 12px;font-size:.8rem;color:var(--muted);line-height:1.6;';
+    hint.style.cssText = 'margin:0 0 12px;font-size:.8rem;color:var(--text-tertiary);line-height:1.6;font-family:Geist Mono,monospace;';
     hint.textContent = '数值越小表示相邻组号码差异越大（0 = 强制最大差异，不做要求 = 纯随机不限制重号）。';
     card.appendChild(hint);
 
@@ -915,11 +977,14 @@ function renderQuickPage() {
 
     const switcher = document.createElement('div');
     switcher.className = 'mode-switch';
-    switcher.innerHTML = `
-        <button class="mode-tab${quickState.mode === 'single' ? ' active' : ''}" data-mode="single" type="button">单式</button>
-        <button class="mode-tab${quickState.mode === 'multiple' ? ' active' : ''}" data-mode="multiple" type="button">复式</button>
-        <button class="mode-tab${quickState.mode === 'dantuo' ? ' active' : ''}" data-mode="dantuo" type="button">胆拖</button>
-    `;
+    ['single', 'multiple', 'dantuo'].forEach(function(m) {
+        var btn = document.createElement('button');
+        btn.className = 'mode-tab' + (quickState.mode === m ? ' active' : '');
+        btn.dataset.mode = m;
+        btn.type = 'button';
+        btn.textContent = m === 'single' ? '单式' : m === 'multiple' ? '复式' : '胆拖';
+        switcher.appendChild(btn);
+    });
     builder.appendChild(switcher);
 
     if (quickState.mode === 'single') {
@@ -935,7 +1000,13 @@ function renderQuickPage() {
 
     const actionBar = document.createElement('div');
     actionBar.className = 'actions-bar';
-    actionBar.innerHTML = `<button class="generate-btn" data-action="generate-quick" type="button" ${quickState.generating ? 'disabled' : ''}>${quickState.generating ? '生成中...' : '开始生成'}</button>`;
+    var genBtn = document.createElement('button');
+    genBtn.className = 'generate-btn';
+    genBtn.dataset.action = 'generate-quick';
+    genBtn.type = 'button';
+    genBtn.textContent = quickState.generating ? '生成中...' : '开始生成';
+    if (quickState.generating) genBtn.disabled = true;
+    actionBar.appendChild(genBtn);
     builder.appendChild(actionBar);
 
     if (quickState.error) {
@@ -949,7 +1020,7 @@ function renderQuickPage() {
 
     const resultSection = document.createElement('section');
     resultSection.className = 'preview-card';
-    resultSection.innerHTML = '<h3 class="preview-title">生成结果</h3>';
+    resultSection.appendChild(domEl('h3', 'preview-title', '生成结果'));
     resultSection.appendChild(renderReceiptResults(quickState.results, quickState.game, quickState.mode, quickState.form));
     subpageContent.appendChild(resultSection);
 }
@@ -1726,7 +1797,7 @@ subpageContent.addEventListener('click', event => {
     // ── 校验记录：导出 ──
     if (event.target.closest('[data-vlog-action="export"]')) {
         const allRecs = ValidationLog.getAll();
-        if (allRecs.length === 0) { alert('暂无记录可导出。'); return; }
+        if (allRecs.length === 0) { showToast('暂无记录可导出。', 'warning'); return; }
         const payload = JSON.stringify(allRecs, null, 2);
         const blob = new Blob([payload], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1753,14 +1824,14 @@ subpageContent.addEventListener('click', event => {
                     const parsed = JSON.parse(ev.target.result);
                     const incoming = Array.isArray(parsed) ? parsed : (parsed.records || []);
                     if (!Array.isArray(incoming) || incoming.length === 0) {
-                        alert('文件格式不正确或无校验记录，请确认导出的是 validation_records_*.json 文件。');
+                        showToast('文件格式不正确或无校验记录，请确认导出的是 validation_records_*.json 文件。', 'error');
                         return;
                     }
                     const added = ValidationLog.importJSON(incoming);
                     renderValidationLogPage();
-                    alert(`✅ 导入成功！新增 ${added} 条记录（已自动去重）。`);
+                    showToast(`导入成功！新增 ${added} 条记录（已自动去重）。`, 'success');
                 } catch (_) {
-                    alert('文件解析失败，请确认是有效的 JSON 文件。');
+                    showToast('文件解析失败，请确认是有效的 JSON 文件。', 'error');
                 }
             };
             reader.readAsText(file, 'utf-8');
@@ -1804,7 +1875,7 @@ subpageContent.addEventListener('click', event => {
                 reason: `平均全零间隔 ${gap} 期，四舍五入取 ${newKillCount} 组杀号`,
                 changeApplied: true
             });
-            alert(`✅ ${gameName}选号策略已更新\n杀号组数：${oldKillCount} → ${newKillCount}\n（依据：平均全零间隔 ${gap} 期）`);
+            showToast(`${gameName}选号策略已更新\n杀号组数：${oldKillCount} → ${newKillCount}\n（依据：平均全零间隔 ${gap} 期）`, 'success');
             renderValidationLogPage();
         }
         return;
@@ -1890,7 +1961,7 @@ subpageContent.addEventListener('click', event => {
         if (vAct === 'randomTicket') {
             const config = LOTTERY_CONFIG[validatorState.game];
             if (config.isK8) {
-                const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 20).drawn;
+                const drawn = simulatePhysicalDraw(20, 80).drawn;
                 validatorState.ticket = { mode: 'single', red: sortAsc(drawn), blue: [] };
             } else {
                 const t = generateLotteryByMachine(validatorState.game);
@@ -1918,153 +1989,7 @@ subpageContent.addEventListener('change', event => {
    核心逻辑 + UI 渲染
    ══════════════════════════════════════════════════════════════ */
 
-/* ── Web Worker 源码（以字符串形式内联，通过 Blob URL 创建） ── */
-const LIFE_SIM_WORKER_SRC = `
-"use strict";
-// 用 Uint8Array 做快速成员判断，避免 Set 或 object 的开销
-const MARK33 = new Uint8Array(34);   // 下标 1-33
-const MARK16 = new Uint8Array(17);   // 下标 1-16
-const TICKET_MARK = new Uint8Array(34); // 用于随机单式每张票的判断
-
-/* 从 1-33 中拒绝采样无放回取 6 个数 */
-function p33_6() {
-    var d = new Array(6), c = 0, n;
-    while (c < 6) {
-        n = 1 + ((Math.random() * 33) | 0);
-        if (!MARK33[n]) { MARK33[n] = 1; d[c++] = n; }
-    }
-    for (var i = 0; i < 6; i++) MARK33[d[i]] = 0;
-    return d;
-}
-
-/* 从 1-max 中取 cnt 个不重复数 */
-function pN(max, cnt, mk) {
-    var d = new Array(cnt), c = 0, n;
-    while (c < cnt) {
-        n = 1 + ((Math.random() * max) | 0);
-        if (!mk[n]) { mk[n] = 1; d[c++] = n; }
-    }
-    for (var i = 0; i < cnt; i++) mk[d[i]] = 0;
-    return d;
-}
-
-/* 检查 winRed（6个）是否全部在 boolArr 中为 1 */
-function ai6(w, b) {
-    return b[w[0]] && b[w[1]] && b[w[2]] && b[w[3]] && b[w[4]] && b[w[5]];
-}
-
-self.onmessage = function(e) {
-    var cfg = e.data;
-    var CHUNK = 200000;  // 每个时间切片处理的期数
-    var tot = 0, sec = 0;
-    var bt = cfg.betType, pm = cfg.pickMode;
-
-    /* 预计算固定模式的布尔数组 */
-    var frb  = new Uint8Array(34);  // fixed single red bool
-    var fmr  = new Uint8Array(34);  // fixed multiple red bool
-    var fmb  = new Uint8Array(17);  // fixed multiple blue bool
-    var rmr  = new Uint8Array(34);  // random multiple red bool（复用）
-    var rmb  = new Uint8Array(17);  // random multiple blue bool（复用）
-    var danFlag  = new Uint8Array(34);  // 胆拖：胆码
-    var tuoFlag  = new Uint8Array(34);  // 胆拖：拖码
-    var dtbFlag  = new Uint8Array(17);  // 胆拖：蓝球
-    var danArr, danCount;
-
-    if (bt === 'single' && pm === 'fixed') {
-        var fa = cfg.fixedRedArr;
-        for (var i = 0; i < fa.length; i++) frb[fa[i]] = 1;
-    }
-    if (bt === 'multiple' && pm === 'fixed') {
-        var fra = cfg.fixedMultipleRedArr, fba = cfg.fixedMultipleBlueArr;
-        for (var i = 0; i < fra.length; i++) fmr[fra[i]] = 1;
-        for (var i = 0; i < fba.length; i++) fmb[fba[i]] = 1;
-    }
-    if (bt === 'danTuo') {
-        danArr = cfg.danRedArr;
-        danCount = danArr.length;
-        var tArr = cfg.tuoRedArr, bArr = cfg.danTuoBlueArr;
-        for (var i = 0; i < danArr.length; i++) danFlag[danArr[i]] = 1;
-        for (var i = 0; i < tArr.length; i++) tuoFlag[tArr[i]] = 1;
-        for (var i = 0; i < bArr.length; i++) dtbFlag[bArr[i]] = 1;
-    }
-
-    var fb  = cfg.fixedBlue;
-    var sp  = cfg.singlePerPeriod;
-    var mrc = cfg.multipleRedCount;
-    var mbc = cfg.multipleBlueCount;
-    var gpp = cfg.groupsPerPeriod || 1;
-
-    function runChunk() {
-        var won = false;
-        for (var iter = 0; iter < CHUNK; iter++) {
-            tot++;
-            var wr = p33_6();
-            var wb = 1 + ((Math.random() * 16) | 0);
-            var pr = 0; // 0=没中, 1=一等奖, 2=二等奖
-
-            if (bt === 'single') {
-                if (pm === 'fixed') {
-                    if (ai6(wr, frb)) pr = (wb === fb) ? 1 : 2;
-                } else {
-                    /* 随缘瞎买：每期 sp 张随机单式票 */
-                    for (var t = 0; t < sp && pr < 1; t++) {
-                        var tr = p33_6();
-                        var tb = 1 + ((Math.random() * 16) | 0);
-                        for (var k = 0; k < 6; k++) TICKET_MARK[tr[k]] = 1;
-                        if (ai6(wr, TICKET_MARK)) pr = (tb === wb) ? 1 : 2;
-                        for (var k = 0; k < 6; k++) TICKET_MARK[tr[k]] = 0;
-                    }
-                }
-            } else if (bt === 'multiple') {
-                /* 复式模式 */
-                var rb, bb, rr, bl;
-                if (pm === 'fixed') {
-                    rb = fmr; bb = fmb;
-                    if (ai6(wr, rb)) pr = bb[wb] ? 1 : 2;
-                } else {
-                    /* 随机复式：每期买 gpp 组，任意一组中奖即算赢 */
-                    for (var g = 0; g < gpp && pr < 1; g++) {
-                        rr = pN(33, mrc, MARK33);
-                        bl = pN(16, mbc, MARK16);
-                        for (var k = 0; k < rr.length; k++) rmr[rr[k]] = 1;
-                        for (var k = 0; k < bl.length; k++) rmb[bl[k]] = 1;
-                        if (ai6(wr, rmr)) pr = rmb[wb] ? 1 : 2;
-                        for (var k = 0; k < rr.length; k++) rmr[rr[k]] = 0;
-                        for (var k = 0; k < bl.length; k++) rmb[bl[k]] = 0;
-                    }
-                }
-            } else {
-                /* 胆拖模式：胆码全在开奖红球里，且开奖红球中剩余的都是拖码 */
-                for (var k = 0; k < 6; k++) MARK33[wr[k]] = 1;  // 临时标记开奖红球
-                var allDanIn = true;
-                for (var k = 0; k < danCount; k++) {
-                    if (!MARK33[danArr[k]]) { allDanIn = false; break; }
-                }
-                if (allDanIn) {
-                    var allInDanOrTuo = true;
-                    for (var k = 0; k < 6; k++) {
-                        if (!danFlag[wr[k]] && !tuoFlag[wr[k]]) { allInDanOrTuo = false; break; }
-                    }
-                    if (allInDanOrTuo) pr = dtbFlag[wb] ? 1 : 2;
-                }
-                for (var k = 0; k < 6; k++) MARK33[wr[k]] = 0;  // 重置
-            }
-
-            if (pr === 2) sec++;
-            if (pr === 1) { won = true; break; }
-        }
-
-        if (won || tot >= 500000000) {
-            self.postMessage({ type: 'done', totalPeriods: tot, secondPrizes: sec, capped: tot >= 500000000 && !won });
-        } else {
-            self.postMessage({ type: 'progress', totalPeriods: tot });
-            setTimeout(runChunk, 0);
-        }
-    }
-
-    runChunk();
-};
-`;
+/* ── Web Worker 源码已提取到 worker.js ── */
 
 /* ── 灵魂评语库 ── */
 const LS_COMMENTS_LUCKY = [
@@ -2296,7 +2221,7 @@ function buildLsConfig() {
         // 复式执念守号：目标数量 + 自选锚定球（不足由机器补）
         const tRed = st.fixedMultipleTargetRed, tBlue = st.fixedMultipleTargetBlue;
         const fixedNote = document.createElement('p');
-        fixedNote.style.cssText = 'font-size:.8rem;color:#8888aa;margin:0 0 10px;';
+        fixedNote.style.cssText = 'font-size:.8rem;color:var(--text-tertiary);margin:0 0 10px;font-family:Geist Mono,monospace;';
         fixedNote.textContent = '先设好目标球数，再选你想"锁定"的号码，其余由机器随机补满。';
         configArea.appendChild(fixedNote);
         // 目标数量输入
@@ -2426,7 +2351,7 @@ function buildLsConfig() {
         key.textContent = k;
         const val = document.createElement('span');
         val.className = 'ls-info-val';
-        if (v.startsWith('超限') || v === '配置未完成') val.style.color = '#ff4444';
+        if (v.startsWith('超限') || v === '配置未完成') val.style.color = '#ef4444';
         val.textContent = v;
         item.appendChild(key);
         item.appendChild(val);
@@ -2461,7 +2386,7 @@ function buildLsDanTuoRedPicker() {
 
     const lbl = document.createElement('p');
     lbl.className = 'ls-ball-picker-title';
-    lbl.innerHTML = `点一次 = <b style="color:#c07000">胆码</b>，再点 = <b style="color:#3060cc">拖码</b>，再点取消&ensp;·&ensp;胆 <b>${st.danRed.size}</b>/5 个 &ensp; 拖 <b>${st.tuoRed.size}</b> 个`;
+    lbl.innerHTML = `点一次 = <b class="color-dan">胆码</b>，再点 = <b class="color-tuo">拖码</b>，再点取消&ensp;·&ensp;胆 <b>${st.danRed.size}</b>/5 个 &ensp; 拖 <b>${st.tuoRed.size}</b> 个`;
     wrap.appendChild(lbl);
 
     const grid = document.createElement('div');
@@ -2472,7 +2397,7 @@ function buildLsDanTuoRedPicker() {
         const isDan = st.danRed.has(i);
         const isTuo = st.tuoRed.has(i);
         btn.className = 'ls-ball red-ball' + (isDan ? ' ls-dan' : isTuo ? ' ls-tuo' : '');
-        btn.textContent = String(i).padStart(2, '0');
+        btn.textContent = formatNumber(i);
         btn.dataset.lsAction = 'pick-dantuo-red';
         btn.dataset.lsNum = i;
         btn.title = isDan ? '胆码（再点→拖码）' : isTuo ? '拖码（再点→取消）' : '点击设为胆码';
@@ -2504,7 +2429,7 @@ function buildLsBallPicker(colorClass, labelText, max, selectedSet, limit, actio
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'ls-ball ' + colorClass + (selectedSet.has(i) ? ' active' : '');
-        btn.textContent = String(i).padStart(2, '0');
+        btn.textContent = formatNumber(i);
         btn.dataset.lsAction = actionOverride || (colorClass === 'red-ball' ? 'pick-red' : 'pick-blue');
         btn.dataset.lsNum = i;
         grid.appendChild(btn);
@@ -2688,33 +2613,33 @@ function buildLsDone() {
             ballRow.className = 'ls-winning-ticket';
             ballRow.style.marginTop = '6px';
             const danLbl = document.createElement('span');
-            danLbl.style.cssText = 'font-size:.72rem;color:#c07000;margin-right:4px;';
+            danLbl.style.cssText = 'font-size:.72rem;color:#f59e0b;margin-right:4px;font-family:Geist Mono,monospace;';
             danLbl.textContent = '胆';
             ballRow.appendChild(danLbl);
             tk.dan.forEach(n => {
                 const b = document.createElement('span');
                 b.className = 'ls-wball red ls-dan';
-                b.textContent = String(n).padStart(2, '0');
+                b.textContent = formatNumber(n);
                 ballRow.appendChild(b);
             });
             const sep1 = document.createElement('span');
-            sep1.style.cssText = 'color:#888;font-size:.8rem;margin:0 6px;';
+            sep1.style.cssText = 'color:var(--text-tertiary);font-size:.8rem;margin:0 6px;font-family:Geist Mono,monospace;';
             sep1.textContent = '拖';
             ballRow.appendChild(sep1);
             tk.tuo.forEach(n => {
                 const b = document.createElement('span');
                 b.className = 'ls-wball red ls-tuo';
-                b.textContent = String(n).padStart(2, '0');
+                b.textContent = formatNumber(n);
                 ballRow.appendChild(b);
             });
             const sep2 = document.createElement('span');
-            sep2.style.cssText = 'color:#444;font-size:.8rem;margin:0 4px;';
+            sep2.style.cssText = 'color:var(--text-tertiary);font-size:.8rem;margin:0 4px;font-family:Geist Mono,monospace;';
             sep2.textContent = '＋';
             ballRow.appendChild(sep2);
             tk.blue.forEach(n => {
                 const b = document.createElement('span');
                 b.className = 'ls-wball blue';
-                b.textContent = String(n).padStart(2, '0');
+                b.textContent = formatNumber(n);
                 ballRow.appendChild(b);
             });
             ticketDiv.appendChild(ballRow);
@@ -2727,18 +2652,18 @@ function buildLsDone() {
             tk.red.forEach(n => {
                 const b = document.createElement('span');
                 b.className = 'ls-wball red';
-                b.textContent = String(n).padStart(2, '0');
+                b.textContent = formatNumber(n);
                 ballRow.appendChild(b);
             });
             const sep = document.createElement('span');
-            sep.style.cssText = 'color:#444;font-size:.8rem;';
+            sep.style.cssText = 'color:var(--text-tertiary);font-size:.8rem;font-family:Geist Mono,monospace;';
             sep.textContent = '＋';
             ballRow.appendChild(sep);
             const blueNums = Array.isArray(tk.blue) ? tk.blue : [tk.blue];
             blueNums.forEach(n => {
                 const bb = document.createElement('span');
                 bb.className = 'ls-wball blue';
-                bb.textContent = String(n).padStart(2, '0');
+                bb.textContent = formatNumber(n);
                 ballRow.appendChild(bb);
             });
             ticketDiv.appendChild(ballRow);
@@ -2824,11 +2749,8 @@ function startLifeSim() {
     // 清理旧 worker
     if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
 
-    // 创建 Blob URL Worker
-    const blob = new Blob([LIFE_SIM_WORKER_SRC], { type: 'text/javascript' });
-    const workerUrl = URL.createObjectURL(blob);
-    lifeSimWorker = new Worker(workerUrl);
-    URL.revokeObjectURL(workerUrl);
+    // 使用外部 worker.js 文件
+    lifeSimWorker = new Worker('./worker.js');
 
     lifeSimWorker.onmessage = function(e) {
         const data = e.data;
@@ -3182,7 +3104,7 @@ function buildMissBallPicker(colorClass, labelText, max, selectedSet, limit, gro
         const isActive   = selectedSet.has(i);
         const isAtLimit  = !isActive && selectedSet.size >= limit;
         btn.className = 'ls-ball ' + colorClass + (isActive ? ' active' : '') + (isAtLimit ? ' miss-blocked' : '');
-        btn.textContent  = String(i).padStart(2, '0');
+        btn.textContent  = formatNumber(i);
         btn.dataset.missBall  = '1';
         btn.dataset.missGroup = groupName;
         btn.dataset.missNum   = i;
@@ -3201,7 +3123,7 @@ function buildMissDanTuoRedPicker() {
     wrap.className = 'ls-ball-picker';
     const lbl = document.createElement('p');
     lbl.className = 'ls-ball-picker-title';
-    lbl.innerHTML = `点一次 = <b style="color:#c07000">胆码</b>，再点 = <b style="color:#3060cc">拖码</b>，再点取消&ensp;·&ensp;胆 <b>${st.danRed.size}</b> 个&ensp;拖 <b>${st.tuoRed.size}</b> 个`;
+    lbl.innerHTML = `点一次 = <b class="color-dan">胆码</b>，再点 = <b class="color-tuo">拖码</b>，再点取消&ensp;·&ensp;胆 <b>${st.danRed.size}</b> 个&ensp;拖 <b>${st.tuoRed.size}</b> 个`;
     wrap.appendChild(lbl);
     const grid = document.createElement('div');
     grid.className = 'ls-ball-grid';
@@ -3211,7 +3133,7 @@ function buildMissDanTuoRedPicker() {
         const isDan = st.danRed.has(i);
         const isTuo = st.tuoRed.has(i);
         btn.className = 'ls-ball red-ball' + (isDan ? ' ls-dan' : isTuo ? ' ls-tuo' : '');
-        btn.textContent = String(i).padStart(2, '0');
+        btn.textContent = formatNumber(i);
         btn.dataset.missBall  = '1';
         btn.dataset.missGroup = 'danTuoRed';
         btn.dataset.missNum   = i;
@@ -3402,7 +3324,7 @@ function buildMissPeriodRow(result, st) {
     draw.red.forEach(n => {
         const b = document.createElement('span');
         b.className = 'miss-ball red' + (userRed.has(n) ? ' hit' : '');
-        b.textContent = String(n).padStart(2, '0');
+        b.textContent = formatNumber(n);
         ballsDiv.appendChild(b);
     });
     const sep = document.createElement('span');
@@ -3412,7 +3334,7 @@ function buildMissPeriodRow(result, st) {
     draw.blue.forEach(n => {
         const b = document.createElement('span');
         b.className = 'miss-ball blue' + (userBlue.has(n) ? ' hit' : '');
-        b.textContent = String(n).padStart(2, '0');
+        b.textContent = formatNumber(n);
         ballsDiv.appendChild(b);
     });
     row.appendChild(ballsDiv);
@@ -3652,7 +3574,7 @@ function renderK8Page(isAutoMode) {
         card.innerHTML = `
             <h3 class="auto-step-title">第一步：生成参考组</h3>
             <p class="auto-step-desc">
-                系统将生成 ${killGroupCount} 组模拟快乐8摇号（每组从1-80中摇出10个号），
+                系统将生成 ${killGroupCount} 组模拟快乐8摇号（每组从1-80中摇出20个号），
                 用第 ${killGroupCount} 组结果作为"杀号"，从剩余号码池中为你生成最终号码。
             </p>
         `;
@@ -3802,7 +3724,7 @@ function renderK8Page(isAutoMode) {
     // 结果
     const resultSection = document.createElement('section');
     resultSection.className = 'preview-card';
-    resultSection.innerHTML = '<h3 class="preview-title">生成结果</h3>';
+    resultSection.appendChild(domEl('h3', 'preview-title', '生成结果'));
     resultSection.appendChild(renderK8Results(st.results, sc));
     subpageContent.appendChild(resultSection);
 }
@@ -3975,7 +3897,7 @@ function handleK8AutoStart() {
     const killGroupCount = getSelectorConfig()['k8']?.killGroupCount || 4;
     quickState.killGroups = [];
     for (let i = 0; i < killGroupCount; i++) {
-        const drawn = simulatePhysicalDrawFromPool(buildPool(80, new Set()), 20).drawn;
+        const drawn = simulatePhysicalDraw(20, 80).drawn;
         quickState.killGroups.push({ red: drawn, blue: [] });
     }
     const killGroup = quickState.killGroups[killGroupCount - 1];
@@ -4088,10 +4010,10 @@ function buildValidatorConfigUI() {
         const config = LOTTERY_CONFIG[vs.game];
         if (vs.ticket.mode === 'single') {
             if (config.isK8) {
-                ticketDisplay.innerHTML = `<span class="vt-label">10个号</span>${vs.ticket.red.map(n=>`<span class="mini-ball k8">${String(n).padStart(2,'0')}</span>`).join('')}`;
+                ticketDisplay.innerHTML = `<span class="vt-label">10个号</span>${vs.ticket.red.map(n=>`<span class="mini-ball k8">${formatNumber(n)}</span>`).join('')}`;
             } else {
-                ticketDisplay.innerHTML = vs.ticket.red.map(n=>`<span class="mini-ball red">${String(n).padStart(2,'0')}</span>`).join('')
-                    + (vs.ticket.blue && vs.ticket.blue.length ? vs.ticket.blue.map(n=>`<span class="mini-ball blue">${String(n).padStart(2,'0')}</span>`).join('') : '');
+                ticketDisplay.innerHTML = vs.ticket.red.map(n=>`<span class="mini-ball red">${formatNumber(n)}</span>`).join('')
+                    + (vs.ticket.blue && vs.ticket.blue.length ? vs.ticket.blue.map(n=>`<span class="mini-ball blue">${formatNumber(n)}</span>`).join('') : '');
             }
         }
     } else {
@@ -4519,7 +4441,7 @@ function buildManualCheckUI() {
     subEl.textContent = isSsqSp
         ? '用物理摇奖机自动生成100000注15红球号码，与历史开奖红球逐一比对，统计平均每注命中几个红球，以及平均多少期出现红球全空（0命中）。'
         : isK8
-        ? '用物理摇奖机自动生成100000注「选十」号码（每注固定10个），与历史开奖逐一比对，统计每期0个命中（完全不中）的轮次间隔，作为快乐8选号策略参考。'
+        ? '用物理摇奖机自动生成100000注号码（每注固定20个，与开奖球数一致），与历史开奖逐一比对，统计每期0个命中（完全不中）的轮次间隔，作为快乐8选号策略参考。'
         : '用物理摇奖机自动生成100000注号码，与历史开奖逐一比对，统计平均每隔多少期出现全部落空和红球全空。';
     section.appendChild(subEl);
 
@@ -4551,11 +4473,11 @@ function buildManualCheckUI() {
         wrap.appendChild(spNote);
     }
 
-    // ── K8 固定 10 球（选十，无需选法选项卡）──
+	// ── K8 固定 20 球（与开奖球数一致）──
     if (isK8) {
         const k8Note = document.createElement('div');
         k8Note.className = 'auto-mode-note';
-        k8Note.textContent = '快乐8 空号校验（选十模式）：每注固定 10 个号码，统计每期0个命中（完全不中）的轮次间隔，作为选号策略参考。';
+        k8Note.textContent = '快乐8 空号校验：每注固定 20 个号码（与开奖球数一致），统计每期0个命中（完全不中）的轮次间隔，作为选号策略参考。';
         wrap.appendChild(k8Note);
     }
 
@@ -4670,11 +4592,11 @@ function buildManualCheckResultUI(report) {
           ]
         : isK8
         ? [
-            { label: '模拟票数',           main: ticketCount + ' 注',   sub: '物理摇奖机生成（选十·10球）' },
+            { label: '模拟票数',           main: ticketCount + ' 注',   sub: '物理摇奖机生成（20球，与开奖一致）' },
             { label: '验证期数',           main: totalPeriods + ' 期',  sub: '' },
-            { label: '平均命中球数',        main: avgRedHit + ' 个',     sub: '10球 vs 开奖20球，平均命中' },
+            { label: '平均命中球数',        main: avgRedHit + ' 个',     sub: '20球 vs 开奖20球，平均命中' },
             { label: '完全不中间隔',        main: avgAllMissGap + ' 期', sub: '平均每隔N期出现0个命中' },
-            { label: '完全不中率',          main: pctAllMiss + '%',      sub: '每期10球全部落空的概率' }
+            { label: '完全不中率',          main: pctAllMiss + '%',      sub: '每期20球全部落空的概率' }
           ]
         : [
             { label: '模拟票数',         main: ticketCount + ' 注',   sub: '物理摇奖机生成' },
@@ -4745,7 +4667,7 @@ function buildManualCheckResultUI(report) {
     if (isSsqSpecial) {
         interp.textContent = `解读：在${totalPeriods}期历史数据中，从1-33号红球池随机取15个球，平均每期能命中开奖红球 ${avgRedHit} 个，平均每 ${avgRedMissGap} 期出现一次红球全部落空（0命中），全空率约 ${pctRedMiss}%。`;
     } else if (isK8) {
-        interp.textContent = `解读：在${totalPeriods}期历史数据中，快乐8「选十」（每注10球）平均每期命中 ${avgRedHit} 个开奖号，平均每 ${avgAllMissGap} 期出现一次"10个号码全部落空（0命中）"，完全不中率约 ${pctAllMiss}%。`;
+        interp.textContent = `解读：在${totalPeriods}期历史数据中，快乐8（每注20球）平均每期命中 ${avgRedHit} 个开奖号，平均每 ${avgAllMissGap} 期出现一次"20个号码全部落空（0命中）"，完全不中率约 ${pctAllMiss}%。`;
     } else {
         interp.textContent = `解读：在${totalPeriods}期历史数据中，每注号码平均每 ${avgAllMissGap} 期出现一次"红蓝全部落空"，红球平均每 ${avgRedMissGap} 期出现一次"全部落空"，红球全空率约 ${pctRedMiss}%。`;
     }
@@ -4859,7 +4781,7 @@ async function runManualCheck() {
                 hitDistCount[dominantHit]++;
                 allMissCount = redMissCount;
             } else if (isK8) {
-                // 快乐8（选十）：统计0命中（完全不中）的轮次
+                // 快乐8：统计0命中（完全不中）的轮次
                 for (let j = 0; j < totalPeriods; j++) {
                     let redHit = 0;
                     drawRedSets[j].forEach(n => { if (ticketRedSet.has(n)) redHit++; });

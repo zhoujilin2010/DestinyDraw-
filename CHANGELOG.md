@@ -4,6 +4,149 @@
 
 ---
 
+## v1.22 — 2026-05-17
+
+### 代码质量优化（基于 v1.21 审查报告）
+
+#### Toast 通知系统
+- **新增** `showToast()` 函数，支持 success / error / info / warning 四种类型
+- **替换** 全部 5 处 `alert()` 调用为 toast 通知（导出无记录、导入格式错误、导入成功、解析失败、策略更新）
+- **新增** toast CSS 样式：右上角定位、玻璃态效果、入场/退场动画、移动端适配
+
+#### Web Worker 独立化
+- **提取** 人生模拟器 Worker 代码（~170 行）到独立的 `worker.js` 文件
+- **移除** 内联 `LIFE_SIM_WORKER_SRC` 模板字符串
+- Worker 创建从 Blob URL 改为文件引用 `new Worker('./worker.js')`
+
+#### 内联样式清理
+- **新增** `.color-dan` / `.color-tuo` CSS 类（胆码琥珀色/拖码电蓝色）
+- **替换** `renderLifeSimPage` 和 `renderMissPage` 中的硬编码 `style="color:#f59e0b"` / `style="color:#3b82f6"`
+
+#### innerHTML → DOM API
+- **新增** `domEl()` / `setText()` 安全 DOM 创建助手函数
+- **替换** 6 处关键路径 innerHTML 为 DOM API 创建（`renderQuickPicker`、`renderReceiptResults`、`renderQuickPage` 等）
+- 更新 README 目录结构，添加 `worker.js` 说明
+
+---
+
+## v1.21 — 2026-05-16
+
+### 清理失效脚本与 Workflow
+
+移除三个已失效的数据抓取脚本及其关联的 GitHub Actions workflow，同步更新文档。
+
+...
+
+### 修正 K8 蒙特卡洛校验 UI 文字（20球）
+
+v1.19 已修复代码层（空号校验生成 20 球、自动选号杀号组生成 20 球），但 UI 描述文字仍残留"选十"、"10个号"等过时描述，现统一修正：
+
+- **空号校验工具（蒙特卡洛）**：页面描述、结果卡片、解读文本中所有"选十"、"每注10球"、"10个号码"改为"20球"或"与开奖球数一致"
+- **K8 自动选号**：步骤1描述"每组从1-80中摇出10个号"→"20个号"
+- 仅涉及文字层，代码逻辑无变更（代码自 v1.19 起已正确生成 20 球）
+
+#### 验证确认
+- `runManualCheck` 第4833行：`simulatePhysicalDrawFromPool(pool, 20)` ✅ 已为20球
+- `handleK8AutoStart` 第3978行：`simulatePhysicalDraw(20, 80)` ✅ 已为20球
+- **历史验证器**（`validator` 页面）保留"选十10球"不变，因为该工具是用户手动输入 10 个号码做验证
+
+#### 已删除
+- **`scripts/fetch-data.js`**：Node.js 抓取脚本，调用的 cwl.gov.cn / sporttery.cn API 已被 WAF 拦截（302 无限重定向 / 403 禁止 / E0001 请求错误），实际已无法使用
+- **`scripts/fetch-data.ps1`**：PowerShell 版本，相同的数据源，相同的反爬拦截问题
+- **`.github/workflows/fetch-lottery-data.yml`**：对应的 GitHub Actions workflow，每天 UTC 17:00 运行已失效的 PowerShell 脚本
+
+#### 已更新
+- **README.md**：目录结构移除 `fetch-data.ps1`，手动更新命令改为 Python 脚本
+- **`update-data.py` 为唯一推荐通道**：数据源为 datachart.500.com 和 data.917500.cn（可正常访问），有合并去重逻辑，不会覆盖丢失历史数据
+
+#### 数据恢复
+- 运行 `update-data.py` 将数据文件恢复为完整历史：SSQ 3451 期 / DLT 2870 期 / K8 1232 期
+
+---
+
+## v1.20 — 2026-05-16
+
+### 二级页面深色主题统一优化
+
+将所有二级页面（机选、自动选号、人生模拟器、错过查询、历史验证器、空号校验等）的样式从原本的亮色/混搭主题全面统一为首页的深色科技风主题，确保全站视觉一致性。
+
+#### 字体统一
+- **标题字体**：全部二级页面标题统一使用 `Funnel Display`（与首页一致）
+- **正文字体**：统一使用 `Inter Tight`
+- **等宽字体**：数字、代码、技术标签统一使用 `Geist Mono`（替代以往的 `Courier New`）
+- 移除所有 `font-family: inherit` 的继承用法，显式指定字体层级
+
+#### 色彩体系
+- **卡片/面板背景**：从 `#faf9f7`、`#ffffff`、`#f7f7fd` 等亮色改为 `rgba(26,26,26,0.95)` 半透明深色，搭配 `rgba(16,185,129,0.12)` 翠绿描边
+- **输入框**：从白色背景改为 `var(--bg-tertiary)` + `var(--border-light)` 样式，聚焦时显示翠绿光晕
+- **数字选择球**：从白色球改为深色 `var(--bg-surface)` 背景，红/蓝/绿激活态改为发光径向渐变
+- **错误/提示横幅**：从粉白/蓝白亮色改为带透明度的深色变体（`rgba(239,68,68,0.08)` 等）
+- **文字颜色**：从硬编码 `#333`、`#888`、`#aaaacc` 等统一为 `var(--text-primary/secondary/tertiary)` 变量体系
+- **按钮色调**：生成/确认/复制等操作按钮统一为翠绿渐变 `linear-gradient(135deg, #10b981, #047857)`
+
+#### 具体组件修改
+
+**机选页面 (quick-builder)**
+- `config-card`、`picker-card`：亮色→深色，添加微阴影
+- `field-input`：白底→深色，Geist Mono 字体
+- `pick-chip`：白底→深色，hover 放大+翠绿边框，激活态径向渐变发光
+- `error-banner`：粉红→深色透明红背景
+- `generate-btn`：纯黑→翠绿渐变，Geist Mono 字体
+
+**自动选号页面 (auto-step-card)**
+- `auto-step-card`：亮色→深色渐变
+- `auto-kill-group-row`：白底→深色，杀号组红底改为透明红
+- `auto-mode-note`：蓝底→透明翠绿底
+- `killed-summary`：粉红底→透明红底
+- `k8-fold-btn`：浅色→深色透明边框
+- `auto-start-btn`/`auto-confirm-btn`：纯黑→翠绿渐变
+
+**人生模拟器 (ls-*)**
+- `ls-wrap`：纯白→深色渐变，翠绿网格装饰线
+- `ls-config-area`、`ls-info-bar`：亮灰→深色
+- `ls-tab`：亮灰→深色，激活态翠绿描边
+- `ls-number-input`：白底→深色
+- `ls-ball`：亮灰→深色，激活态发光径向渐变
+- `ls-start-btn`：紫蓝渐变→翠绿渐变
+- `ls-result-card`、`ls-comment`：亮灰→深色
+- `ls-result-card-main` 颜色值调整为深色兼容（`#00aa55`→`#34d399` 等）
+- `ls-loss-amount`、`ls-profit-amount`：调整为深色主题亮色
+
+**错过查询页面 (miss-*)**
+- `miss-tab`：圆角胶囊→直角，亮色→深色，激活态翠绿
+- `miss-table-wrap`、`miss-detail-wrap`：亮灰→深色
+- `miss-ball`：浅色→深色透明背景，命中态发光
+- `miss-prize-badge` level 5-7：浅色→深色透明
+- `miss-error-tip`：亮灰→深色
+
+**K8 选法 (k8-mode-*)**
+- `k8-mode-tab`：圆角浅色→直角深色，激活态翠绿
+
+**选号单 (slip-*)**
+- `slip-wrapper`：浅色→深色
+- `slip-header`、`slip-footer`：浅色→深色
+- `slip-copy-btn`：黑灰→翠绿渐变
+- 杀号组行：浅粉红→透明红
+
+**验证器 (validator-*)**
+- `validator-section-title`、`validator-stat-label` 等：`#aaa`→`var(--text-tertiary)`
+- `validator-ticket-section`、`validator-stat-card`、`validator-detail`：`#1a1a1a`→CSS 变量
+- `validator-period-row` 边框：`#222`→`var(--border-light)`
+- `btn-secondary`：暗色边框→翠绿 hover 高亮
+
+**蒙特卡洛 (mc-*)**
+- `mc-progress-bar`、`mc-dist-bar-wrap`：`#2a2a2a`、`#1e1e1e`→`var(--bg-surface)`
+- 进度条颜色改为翠绿渐变
+
+#### JavaScript 内联样式更新
+- `var(--muted)` 引用 → `var(--text-secondary)` / `var(--text-tertiary)`
+- 胆码标签颜色 `#c07000` → `#f59e0b`（琥珀色）
+- 拖码标签颜色 `#3060cc` → `#3b82f6`（电蓝色）
+- 分隔符颜色 `#444`、`#888` → `var(--text-tertiary)`
+- 添加 `Geist Mono` 字体内联指定
+
+---
+
 ## v1.19 — 2026-05-09
 
 ### 修复
