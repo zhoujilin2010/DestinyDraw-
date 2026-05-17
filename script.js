@@ -290,6 +290,7 @@ function formatNums(numbers) {
 const AUTO_GROUP_MIN_DELAY_MS = 140;
 const AUTO_GROUP_DELAY_JITTER_MS = 40;
 const AUTO_SIMILARITY_RETRY_LIMIT = 6;
+const AUTO_RATIO_RETRY_LIMIT = 50;
 
 // 预分配单个 buffer，避免 secureRandomInt 每次调用都分配新对象
 const _secureRngBuffer = new Uint32Array(1);
@@ -1204,12 +1205,12 @@ function renderOddEvenControl() {
 
     var header = document.createElement('p');
     header.style.cssText = 'margin:0 0 10px;font-size:.85rem;color:var(--text-secondary);font-weight:600;font-family:Geist Mono,monospace;';
-    header.textContent = '🤡 号码奇偶比控制';
+    header.textContent = '号码奇偶比筛选';
     card.appendChild(header);
 
     var hint = document.createElement('p');
     hint.style.cssText = 'margin:0 0 12px;font-size:.8rem;color:var(--text-tertiary);line-height:1.6;font-family:Geist Mono,monospace;';
-    hint.textContent = '可多选。每个选项自动覆盖对称方向（如 1:5 同时包含 1奇5偶 和 5奇1偶）。复式/胆拖模式下会显示各组合的奇偶占比。';
+    hint.textContent = '可多选。选中的奇偶比作为后置筛选条件，生成后自动验证，不符合则重新生成。';
     card.appendChild(hint);
 
     var row = document.createElement('div');
@@ -1243,12 +1244,12 @@ function renderBigSmallControl() {
 
     var header = document.createElement('p');
     header.style.cssText = 'margin:0 0 10px;font-size:.85rem;color:var(--text-secondary);font-weight:600;font-family:Geist Mono,monospace;';
-    header.textContent = '🤡 号码大小比控制';
+    header.textContent = '号码大小比筛选';
     card.appendChild(header);
 
     var hint = document.createElement('p');
     hint.style.cssText = 'margin:0 0 12px;font-size:.8rem;color:var(--text-tertiary);line-height:1.6;font-family:Geist Mono,monospace;';
-    hint.textContent = '可多选。每个选项自动覆盖对称方向。与奇偶比同时选中时，两者必须同时满足，否则提示生成失败。';
+    hint.textContent = '可多选。选中的大小比作为后置筛选条件，生成后自动验证，不符合则重新生成。';
     card.appendChild(hint);
 
     var row = document.createElement('div');
@@ -1571,25 +1572,7 @@ function generateSingleTicket(game) {
     const redPool  = buildPool(redMax, killedRed);
     const bluePool = config.blueCount > 0 ? buildPool(config.blueMax, killedBlue) : [];
 
-    var red;
-    var oePicked = pickOddEvenRatio();
-    var bsPicked = pickBigSmallRatio();
-    bsPicked = resolveBigSmallRatio(bsPicked);
-
-    try {
-        if (oePicked && bsPicked) {
-            red = drawWithDualConstraint(redPool, oePicked.odd, oePicked.even, bsPicked.big, bsPicked.small, game);
-        } else if (oePicked) {
-            red = drawWithOddEvenRatio(redPool, oePicked.odd, oePicked.even);
-        } else if (bsPicked) {
-            red = drawWithBigSmallRatio(redPool, bsPicked.big, bsPicked.small, game);
-        } else {
-            red = simulatePhysicalDrawFromPool(redPool, sc).drawn;
-        }
-    } catch (e) {
-        quickState.error = e.message;
-        red = simulatePhysicalDrawFromPool(redPool, sc).drawn;
-    }
+    var red = simulatePhysicalDrawFromPool(redPool, sc).drawn;
 
     const blue = config.blueCount > 0 ? simulatePhysicalDrawFromPool(bluePool, config.blueCount).drawn : [];
     return {
@@ -1613,65 +1596,8 @@ function generateMultipleTicket(game) {
     const redRandomCount  = quickState.form.multipleRedTotal  - redManual.length;
     const blueRandomCount = isK8 ? 0 : (quickState.form.multipleBlueTotal - blueManual.length);
 
-    var redRandom;
+    var redRandom = redRandomCount > 0 ? drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount) : [];
     var summaryParts = [];
-    var oePicked = pickOddEvenRatio();
-    var bsPicked = pickBigSmallRatio();
-    bsPicked = resolveBigSmallRatio(bsPicked);
-
-    var manualOdd   = redManual.filter(function(n) { return n % 2 === 1; }).length;
-    var manualEven  = redManual.filter(function(n) { return n % 2 === 0; }).length;
-    var midPoint = getMidPoint(game);
-    var manualBig   = redManual.filter(function(n) { return n > midPoint; }).length;
-    var manualSmall = redManual.filter(function(n) { return n <= midPoint; }).length;
-
-    var remainingPool = buildPool(redMax, new Set([].concat(redManual, killedRed)));
-
-    if (oePicked && bsPicked && redRandomCount > 0) {
-        var randOdd  = Math.max(0, oePicked.odd  - manualOdd);
-        var randEven = Math.max(0, oePicked.even - manualEven);
-        var randBig  = Math.max(0, bsPicked.big   - manualBig);
-        var randSmall = Math.max(0, bsPicked.small - manualSmall);
-        // 调整使奇数+偶数 = 大数+小数 = redRandomCount
-        if (randOdd + randEven !== redRandomCount) { randEven = redRandomCount - randOdd; }
-        if (randBig + randSmall !== redRandomCount) { randSmall = redRandomCount - randBig; }
-        if (randOdd < 0) { randOdd = 0; randEven = redRandomCount; }
-        if (randEven < 0) { randEven = 0; randOdd = redRandomCount; }
-        if (randBig < 0) { randBig = 0; randSmall = redRandomCount; }
-        if (randSmall < 0) { randSmall = 0; randBig = redRandomCount; }
-        try {
-            redRandom = drawWithDualConstraint(remainingPool, randOdd, randEven, randBig, randSmall, game);
-        } catch (e) {
-            quickState.error = e.message;
-            redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
-        }
-    } else if (oePicked && redRandomCount > 0) {
-        var randOdd2  = Math.max(0, oePicked.odd  - manualOdd);
-        var randEven2 = Math.max(0, oePicked.even - manualEven);
-        if (randOdd2 + randEven2 !== redRandomCount) { randEven2 = redRandomCount - randOdd2; }
-        if (randOdd2 < 0) { randOdd2 = 0; randEven2 = redRandomCount; }
-        if (randEven2 < 0) { randEven2 = 0; randOdd2 = redRandomCount; }
-        try {
-            redRandom = drawWithOddEvenRatio(remainingPool, randOdd2, randEven2);
-        } catch (e) {
-            quickState.error = e.message;
-            redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
-        }
-    } else if (bsPicked && redRandomCount > 0) {
-        var randBig2   = Math.max(0, bsPicked.big   - manualBig);
-        var randSmall2 = Math.max(0, bsPicked.small - manualSmall);
-        if (randBig2 + randSmall2 !== redRandomCount) { randSmall2 = redRandomCount - randBig2; }
-        if (randBig2 < 0) { randBig2 = 0; randSmall2 = redRandomCount; }
-        if (randSmall2 < 0) { randSmall2 = 0; randBig2 = redRandomCount; }
-        try {
-            redRandom = drawWithBigSmallRatio(remainingPool, randBig2, randSmall2, game);
-        } catch (e) {
-            quickState.error = e.message;
-            redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
-        }
-    } else {
-        redRandom = drawRemaining(redMax, [...redManual, ...killedRed], redRandomCount);
-    }
 
     var allRed = sortAsc([].concat(redManual, redRandom));
     if (quickState.form.multipleRedTotal > config.redCount) {
@@ -1710,84 +1636,14 @@ function generateDanTuoTicket(game) {
     const blueTuoManual = isK8 ? [] : sortAsc([...quickState.custom.blueTuo]);
 
     var redDan, redTuo;
-    var oePicked = pickOddEvenRatio();
-    var bsPicked = pickBigSmallRatio();
-    bsPicked = resolveBigSmallRatio(bsPicked);
     var totalRed = quickState.form.redDanTotal + quickState.form.redTuoTotal;
     var summaryParts = ['红胆码自选 ' + redDanManual.length + ' 个、随机补 ' + (quickState.form.redDanTotal - redDanManual.length) + ' 个；红拖码自选 ' + redTuoManual.length + ' 个、随机补 ' + (quickState.form.redTuoTotal - redTuoManual.length) + ' 个。'];
 
-    var danRandomNeeded = quickState.form.redDanTotal - redDanManual.length;
-    var tuoRandomNeeded = quickState.form.redTuoTotal - redTuoManual.length;
-    var totalRandomNeeded = totalRed - (redDanManual.length + redTuoManual.length);
-    var allManual = [].concat(redDanManual, redTuoManual);
-    var hasConstraint = oePicked || bsPicked;
-
-    if (hasConstraint && totalRandomNeeded > 0) {
-        var midPoint = getMidPoint(game);
-        var manualOdd   = allManual.filter(function(n) { return n % 2 === 1; }).length;
-        var manualEven  = allManual.filter(function(n) { return n % 2 === 0; }).length;
-        var manualBig   = allManual.filter(function(n) { return n > midPoint; }).length;
-        var manualSmall = allManual.filter(function(n) { return n <= midPoint; }).length;
-
-        var blockedAll = new Set([].concat(allManual, killedRed));
-        var remainingPool = buildPool(redMax, blockedAll);
-
-        var randomDraw;
-        try {
-            if (oePicked && bsPicked) {
-                var randOdd  = Math.max(0, oePicked.odd  - manualOdd);
-                var randEven = Math.max(0, oePicked.even - manualEven);
-                var randBig  = Math.max(0, bsPicked.big   - manualBig);
-                var randSmall = Math.max(0, bsPicked.small - manualSmall);
-                if (randOdd + randEven !== totalRandomNeeded) { randEven = totalRandomNeeded - randOdd; }
-                if (randBig + randSmall !== totalRandomNeeded) { randSmall = totalRandomNeeded - randBig; }
-                if (randOdd < 0) { randOdd = 0; randEven = totalRandomNeeded; }
-                if (randEven < 0) { randEven = 0; randOdd = totalRandomNeeded; }
-                if (randBig < 0) { randBig = 0; randSmall = totalRandomNeeded; }
-                if (randSmall < 0) { randSmall = 0; randBig = totalRandomNeeded; }
-                randomDraw = drawWithDualConstraint(remainingPool, randOdd, randEven, randBig, randSmall, game);
-            } else if (oePicked) {
-                var randOdd2  = Math.max(0, oePicked.odd  - manualOdd);
-                var randEven2 = Math.max(0, oePicked.even - manualEven);
-                if (randOdd2 + randEven2 !== totalRandomNeeded) { randEven2 = totalRandomNeeded - randOdd2; }
-                if (randOdd2 < 0) { randOdd2 = 0; randEven2 = totalRandomNeeded; }
-                if (randEven2 < 0) { randEven2 = 0; randOdd2 = totalRandomNeeded; }
-                randomDraw = drawWithOddEvenRatio(remainingPool, randOdd2, randEven2);
-            } else if (bsPicked) {
-                var randBig2   = Math.max(0, bsPicked.big   - manualBig);
-                var randSmall2 = Math.max(0, bsPicked.small - manualSmall);
-                if (randBig2 + randSmall2 !== totalRandomNeeded) { randSmall2 = totalRandomNeeded - randBig2; }
-                if (randBig2 < 0) { randBig2 = 0; randSmall2 = totalRandomNeeded; }
-                if (randSmall2 < 0) { randSmall2 = 0; randBig2 = totalRandomNeeded; }
-                randomDraw = drawWithBigSmallRatio(remainingPool, randBig2, randSmall2, game);
-            }
-        } catch (e) {
-            quickState.error = e.message;
-            randomDraw = simulatePhysicalDrawFromPool(remainingPool, totalRandomNeeded).drawn;
-        }
-
-        // 将随机号码分配到胆码和拖码中（先用完胆码需求，剩余给拖码）
-        if (danRandomNeeded > 0 && randomDraw.length >= danRandomNeeded) {
-            redDan = sortAsc([].concat(redDanManual, randomDraw.slice(0, danRandomNeeded)));
-        } else {
-            redDan = sortAsc([].concat(redDanManual));
-        }
-        var remainingForTuo = randomDraw.slice(danRandomNeeded);
-        if (tuoRandomNeeded > 0 && remainingForTuo.length >= tuoRandomNeeded) {
-            redTuo = sortAsc([].concat(redTuoManual, remainingForTuo.slice(0, tuoRandomNeeded)));
-        } else {
-            var danSet = new Set(redDan);
-            var blockedTuo = new Set([].concat(redTuoManual, killedRed, [...danSet]));
-            var tuoPool = buildPool(redMax, blockedTuo);
-            redTuo = sortAsc([].concat(redTuoManual, simulatePhysicalDrawFromPool(tuoPool, tuoRandomNeeded).drawn));
-        }
-    } else {
-        redDan = fillDanArea(redMax, redDanManual, [...redTuoManual, ...killedRed], quickState.form.redDanTotal);
-        redTuo = sortAsc([
-            ...redTuoManual,
-            ...drawRemaining(redMax, [...redDan, ...redTuoManual, ...killedRed], quickState.form.redTuoTotal - redTuoManual.length)
-        ]);
-    }
+    redDan = fillDanArea(redMax, redDanManual, [...redTuoManual, ...killedRed], quickState.form.redDanTotal);
+    redTuo = sortAsc([
+        ...redTuoManual,
+        ...drawRemaining(redMax, [...redDan, ...redTuoManual, ...killedRed], quickState.form.redTuoTotal - redTuoManual.length)
+    ]);
 
     // 复式/胆拖展示奇偶+大小占比
     if (totalRed > config.redCount) {
@@ -1882,6 +1738,44 @@ function validateQuickState() {
     return '';
 }
 
+function validateTicketRatios(ticket, game) {
+    if (!quickState) return true;
+
+    var reds;
+    if (ticket.mode === 'dantuo') {
+        reds = [].concat(ticket.redDan, ticket.redTuo);
+    } else {
+        reds = ticket.red;
+    }
+
+    if (quickState.oddEvenRatio && quickState.oddEvenRatio.length > 0) {
+        var oddCount = reds.filter(function(n) { return n % 2 === 1; }).length;
+        var evenCount = reds.length - oddCount;
+        var matchesOE = quickState.oddEvenRatio.some(function(ratio) {
+            var parts = ratio.split(':');
+            var a = parseInt(parts[0], 10);
+            var b = parseInt(parts[1], 10);
+            return (oddCount === a && evenCount === b) || (oddCount === b && evenCount === a);
+        });
+        if (!matchesOE) return false;
+    }
+
+    if (quickState.bigSmallRatio && quickState.bigSmallRatio.length > 0) {
+        var midPoint = getMidPoint(game);
+        var bigCount = reds.filter(function(n) { return n > midPoint; }).length;
+        var smallCount = reds.length - bigCount;
+        var matchesBS = quickState.bigSmallRatio.some(function(ratio) {
+            var parts = ratio.split(':');
+            var a = parseInt(parts[0], 10);
+            var b = parseInt(parts[1], 10);
+            return (bigCount === a && smallCount === b);
+        });
+        if (!matchesBS) return false;
+    }
+
+    return true;
+}
+
 async function handleGenerateQuick() {
     if (!quickState) return;
     if (quickState.generating) return;
@@ -1904,18 +1798,20 @@ async function handleGenerateQuick() {
         const results = [];
 
         for (let i = 0; i < lockedCount; i += 1) {
-            // 无论是否自动模式，多注生成均应用差异化逻辑，避免连续出现大量重复号码
-            results.push(createAutoDiverseTicket(lockedGame, lockedMode, results));
+            var ticket;
+            var ratioAttempts = 0;
+            do {
+                ticket = createAutoDiverseTicket(lockedGame, lockedMode, results);
+                ratioAttempts += 1;
+            } while (!validateTicketRatios(ticket, lockedGame) && ratioAttempts < AUTO_RATIO_RETRY_LIMIT);
+            results.push(ticket);
 
             if (needAutoDelay && i < lockedCount - 1) {
                 await waitForNextAutoGroup();
             }
         }
 
-        // 只清空校验错误，保留生成过程中产生的约束错误
-        if (!quickState.error || quickState.error.indexOf('约束') === -1) {
-            quickState.error = '';
-        }
+        quickState.error = '';
         quickState.results = results;
     } finally {
         quickState.generating = false;
