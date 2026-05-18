@@ -31,7 +31,115 @@ function ai6(w, b) {
     return b[w[0]] && b[w[1]] && b[w[2]] && b[w[3]] && b[w[4]] && b[w[5]];
 }
 
+/* ══════════════════════════════════════════════════════════════
+   K8 校准专用 —— 模拟抽号与验证
+   ══════════════════════════════════════════════════════════════ */
+function k8ShuffleMachine(pool, rounds) {
+    var mixed = pool.slice();
+    for (var r = 0; r < rounds; r++) {
+        for (var i = mixed.length - 1; i > 0; i--) {
+            var j = (Math.random() * (i + 1)) | 0;
+            var tmp = mixed[i]; mixed[i] = mixed[j]; mixed[j] = tmp;
+        }
+    }
+    return mixed;
+}
+
+function k8SimulateDraw(count, max) {
+    var pool = new Array(max);
+    for (var i = 0; i < max; i++) pool[i] = i + 1;
+    var mixed = k8ShuffleMachine(pool, Math.max(12, max * 2));
+    var drawn = mixed.slice(0, count);
+    drawn.sort(function(a, b) { return a - b; });
+    return drawn;
+}
+
+function k8ValidateRatios(numbers, oeRatios, bsRatios) {
+    if (oeRatios && oeRatios.length > 0) {
+        var odd = 0, even = 0;
+        for (var i = 0; i < numbers.length; i++) {
+            if (numbers[i] % 2 === 1) odd++; else even++;
+        }
+        var match = false;
+        for (var o = 0; o < oeRatios.length; o++) {
+            var parts = oeRatios[o].split(':');
+            var a = parseInt(parts[0], 10), b = parseInt(parts[1], 10);
+            if ((odd === a && even === b) || (odd === b && even === a)) { match = true; break; }
+        }
+        if (!match) return false;
+    }
+    if (bsRatios && bsRatios.length > 0) {
+        var big = 0, small = 0;
+        for (var i = 0; i < numbers.length; i++) {
+            if (numbers[i] >= 41) big++; else small++;
+        }
+        var match = false;
+        for (var b = 0; b < bsRatios.length; b++) {
+            var parts = bsRatios[b].split(':');
+            var a = parseInt(parts[0], 10), bv = parseInt(parts[1], 10);
+            if ((big === a && small === bv) || (big === bv && small === a)) { match = true; break; }
+        }
+        if (!match) return false;
+    }
+    return true;
+}
+
+function handleK8Calibrate(cfg) {
+    var draws = cfg.draws;
+    var oeR = cfg.oddEvenRatios;
+    var bsR = cfg.bigSmallRatios;
+    var MAX_BETS = 100000;
+    var TARGET = 14;
+    var results = [];
+    var hitCount = 0;
+
+    for (var i = 0; i < draws.length; i++) {
+        var draw = draws[i];
+        var drawSet = {};
+        for (var d = 0; d < draw.red.length; d++) drawSet[draw.red[d]] = true;
+
+        var valid = 0;
+        var hitPeriod = null;
+        var maxO = 0;
+
+        for (var att = 0; att < MAX_BETS * 2000 && valid < MAX_BETS; att++) {
+            var bet = k8SimulateDraw(20, 80);
+            if (k8ValidateRatios(bet, oeR, bsR)) {
+                valid++;
+                var ov = 0;
+                for (var b = 0; b < bet.length; b++) { if (drawSet[bet[b]]) ov++; }
+                if (ov > maxO) maxO = ov;
+                if (ov >= TARGET) { hitPeriod = valid; hitCount++; break; }
+            }
+        }
+
+        results.push({ code: draw.code, date: draw.date, period: hitPeriod, maxOverlap: maxO });
+
+        if ((i + 1) % 5 === 0 || i === draws.length - 1) {
+            self.postMessage({ type: 'k8-progress', processedDraws: i + 1, totalDraws: draws.length, hitCount: hitCount, results: results });
+        }
+    }
+
+    var hitResults = [];
+    for (var ri = 0; ri < results.length; ri++) {
+        if (results[ri].period !== null) hitResults.push(results[ri]);
+    }
+    var averagePeriod = null;
+    if (hitResults.length > 0) {
+        var sum = 0;
+        for (var si = 0; si < hitResults.length; si++) sum += hitResults[si].period;
+        averagePeriod = Math.round(sum / hitResults.length);
+    }
+
+    self.postMessage({ type: 'k8-done', results: results, averagePeriod: averagePeriod, hitCount: hitCount, totalDraws: draws.length });
+}
+
 self.onmessage = function(e) {
+    var cfg = e.data;
+    if (cfg.type === 'k8-calibrate') {
+        handleK8Calibrate(cfg);
+        return;
+    }
     var cfg = e.data;
     var CHUNK = 200000;  // 每个时间切片处理的期数
     var tot = 0, sec = 0;

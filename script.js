@@ -101,6 +101,16 @@ const SUBPAGES = {
         title: '空号校验工具',
         desc: '手动选号进行一次性历史比对，查看历史校验结果、AI参数建议与回滚操作。',
         game: null
+    },
+    'k8-calibrate': {
+        title: '快乐8校准工具特别版',
+        desc: '基于真实开奖结果，生成10万注号码对撞，统计奇偶大小条件下的平均命中期数。',
+        game: 'k8'
+    },
+    'k8-smart': {
+        title: '快乐8智慧选号特别版',
+        desc: '基于校准结果的平均期数构建候选池，支持单式/复式/胆拖多玩法选号。',
+        game: 'k8'
     }
 };
 
@@ -110,6 +120,8 @@ const LIFE_SIM_PAGE_KEYS = new Set(['dlt-when']);
 const MISS_PAGE_KEYS     = new Set(['ssq-miss']);
 const VALIDATOR_PAGE_KEYS = new Set(['validator']);
 const VLOG_PAGE_KEYS      = new Set(['validation-log']);
+const K8_CALIBRATE_PAGE_KEYS = new Set(['k8-calibrate']);
+const K8_SMART_PAGE_KEYS     = new Set(['k8-smart']);
 
 /* ══════════════════════════════════════════════════════════════
    LotteryDB —— 历史开奖号码共享数据库
@@ -125,7 +137,7 @@ const LotteryDB = (() => {
     const DB_KEY     = { ssq: 'lotterydb_v1_ssq', dlt: 'lotterydb_v1_dlt', k8: 'lotterydb_v1_k8' };
     const MAX_AGE_MS = 24 * 60 * 60 * 1000;
     const SSQ_URL    = 'https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=ssq&issueCount=500';
-    const K8_URL     = 'https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=kl8&issueCount=300';
+    const K8_URL     = 'https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=kl8&issueCount=1000';
     const DLT_URL    = p => `https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.do?gameNo=85&provinceId=0&pageSize=100&isVerify=1&pageNo=${p}`;
     const PROXIES    = [
         url => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
@@ -308,6 +320,8 @@ const navCards = Array.from(document.querySelectorAll('.nav-card'));
 let activePageKey = null;
 let quickState = null;
 let missState = null;
+let k8CalibrateState = null;
+let k8SmartState = null;
 
 function secureRandomInt(maxExclusive) {
     if (!Number.isInteger(maxExclusive) || maxExclusive <= 0) {
@@ -1436,7 +1450,8 @@ function openSubpage(pageKey) {
     subpageDesc.textContent = page.desc;
 
     const hideModelNote = LIFE_SIM_PAGE_KEYS.has(pageKey) || MISS_PAGE_KEYS.has(pageKey)
-        || VALIDATOR_PAGE_KEYS.has(pageKey) || VLOG_PAGE_KEYS.has(pageKey);
+        || VALIDATOR_PAGE_KEYS.has(pageKey) || VLOG_PAGE_KEYS.has(pageKey)
+        || K8_CALIBRATE_PAGE_KEYS.has(pageKey) || K8_SMART_PAGE_KEYS.has(pageKey);
     modelNote.style.display = hideModelNote ? 'none' : '';
     modelNoteText.textContent = hideModelNote ? '' : getModelDescription();
 
@@ -1465,6 +1480,18 @@ function openSubpage(pageKey) {
     } else if (AUTO_PAGE_KEYS.has(pageKey)) {
         quickState = createAutoState(page.game, pageKey);
         renderAutoPage();
+    } else if (K8_CALIBRATE_PAGE_KEYS.has(pageKey)) {
+        quickState = null;
+        lifeSimState = null;
+        missState = null;
+        k8CalibrateState = createK8CalibrateState();
+        renderK8CalibratePage();
+    } else if (K8_SMART_PAGE_KEYS.has(pageKey)) {
+        quickState = null;
+        lifeSimState = null;
+        missState = null;
+        k8SmartState = createK8SmartState();
+        renderK8SmartPage();
     }
 
     homeView.classList.add('hidden');
@@ -1473,8 +1500,11 @@ function openSubpage(pageKey) {
 
 function goHome() {
     if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
+    if (k8CalibrateWorker) { k8CalibrateWorker.terminate(); k8CalibrateWorker = null; }
     lifeSimState = null;
     missState = null;
+    k8CalibrateState = null;
+    k8SmartState = null;
     modelNote.style.display = '';
     activePageKey = null;
     subpageView.classList.add('hidden');
@@ -2041,6 +2071,69 @@ function saveNavOrder(order) {
 backHomeBtn.addEventListener('click', goHome);
 
 subpageContent.addEventListener('click', event => {
+    // ── 快乐8特别版：比率按钮切换 ──
+    var ratioBtn = event.target.closest('[data-ratio-value]');
+    if (ratioBtn) {
+        var group = ratioBtn.closest('[data-ratio-type]');
+        if (group && (group.dataset.ratioType === 'k8-oe' || group.dataset.ratioType === 'k8-bs')) {
+            var type = group.dataset.ratioType;
+            var value = ratioBtn.dataset.ratioValue;
+            var field = type === 'k8-oe' ? 'oddEvenRatios' : 'bigSmallRatios';
+            var state = k8CalibrateState || k8SmartState;
+            if (state) {
+                handleSpecialRatioToggle(state, field, value);
+                if (k8CalibrateState) renderK8CalibratePage();
+                else if (k8SmartState) renderK8SmartPage();
+                return;
+            }
+        }
+    }
+
+    // ── 快乐8特别版：校准工具 ──
+    if (event.target.closest('[data-action="k8-calibrate-start"]') && k8CalibrateState) {
+        handleK8CalibrateStart();
+        return;
+    }
+    if (event.target.closest('[data-action="k8-calibrate-reset"]') && k8CalibrateState) {
+        k8CalibrateState = createK8CalibrateState();
+        renderK8CalibratePage();
+        return;
+    }
+    if (event.target.closest('[data-action="k8-calibrate-apply"]') && k8CalibrateState && k8CalibrateState.averagePeriod) {
+        // 跳转到智慧选号页面
+        openSubpage('k8-smart');
+        return;
+    }
+
+    // ── 快乐8特别版：智慧选号 ──
+    var smartAutoBtn = event.target.closest('[data-action="k8-smart-auto-pick"]');
+    if (smartAutoBtn && k8SmartState) {
+        handleK8SmartAutoPick();
+        return;
+    }
+    var smartGenBtn = event.target.closest('[data-action="k8-smart-generate"]');
+    if (smartGenBtn && k8SmartState) {
+        handleK8SmartGenerate();
+        return;
+    }
+    var smartSelBtn = event.target.closest('[data-k8-smart-select]');
+    if (smartSelBtn && k8SmartState) {
+        k8SmartState.selectMode = parseInt(smartSelBtn.dataset.k8SmartSelect, 10);
+        k8SmartState.results = [];
+        k8SmartState.error = '';
+        renderK8SmartPage();
+        return;
+    }
+    var smartModeBtn = event.target.closest('[data-k8-smart-mode]');
+    if (smartModeBtn && k8SmartState) {
+        if (k8SmartState.generating) return;
+        k8SmartState.mode = smartModeBtn.dataset.k8SmartMode;
+        k8SmartState.results = [];
+        k8SmartState.error = '';
+        renderK8SmartPage();
+        return;
+    }
+
     // ── stepper 加减按钮（K8 面板专用）──
     const stepperBtn = event.target.closest('.stepper-btn');
     if (stepperBtn && quickState) {
@@ -2421,6 +2514,20 @@ subpageContent.addEventListener('change', event => {
     if (field && quickState) {
         updateQuickField(field, event.target.value);
     }
+    if (field && k8SmartState) {
+        var val = parseInt(event.target.value, 10);
+        if (isNaN(val)) return;
+        if (field === 'k8SmartMultiple') {
+            k8SmartState.form.multipleRedTotal = Math.max(1, val);
+            renderK8SmartPage();
+        } else if (field === 'k8SmartDan') {
+            k8SmartState.form.redDanTotal = Math.max(1, val);
+            renderK8SmartPage();
+        } else if (field === 'k8SmartTuo') {
+            k8SmartState.form.redTuoTotal = Math.max(1, val);
+            renderK8SmartPage();
+        }
+    }
 });
 
 /* ══════════════════════════════════════════════════════════════
@@ -2462,6 +2569,7 @@ function fillComment(template, vars) {
 /* ── Life-sim 状态 ── */
 let lifeSimState = null;
 let lifeSimWorker = null;
+let k8CalibrateWorker = null;
 
 function createLifeSimState() {
     return {
@@ -5448,4 +5556,572 @@ function renderValidationLogPage() {
 
     subpageContent.appendChild(wrap);
 }
+
+
+
+
+/* ══════════════════════════════════════════════════════════════
+   快乐8特别版 —— 通用辅助
+   ══════════════════════════════════════════════════════════════ */
+
+function validateSimpleRatios(numbers, oddEvenRatios, bigSmallRatios) {
+    if (oddEvenRatios && oddEvenRatios.length > 0) {
+        var oddCount = 0, evenCount = 0;
+        for (var i = 0; i < numbers.length; i++) {
+            if (numbers[i] % 2 === 1) oddCount++; else evenCount++;
+        }
+        var matchesOE = false;
+        for (var o = 0; o < oddEvenRatios.length; o++) {
+            var parts = oddEvenRatios[o].split(':');
+            var a = parseInt(parts[0], 10), b = parseInt(parts[1], 10);
+            if ((oddCount === a && evenCount === b) || (oddCount === b && evenCount === a)) { matchesOE = true; break; }
+        }
+        if (!matchesOE) return false;
+    }
+    if (bigSmallRatios && bigSmallRatios.length > 0) {
+        var bigCount = 0, smallCount = 0;
+        for (var i = 0; i < numbers.length; i++) {
+            if (numbers[i] > 40) bigCount++; else smallCount++;
+        }
+        var matchesBS = false;
+        for (var b = 0; b < bigSmallRatios.length; b++) {
+            var parts = bigSmallRatios[b].split(':');
+            var a = parseInt(parts[0], 10), bb = parseInt(parts[1], 10);
+            if (bigCount === a && smallCount === bb) { matchesBS = true; break; }
+        }
+        if (!matchesBS) return false;
+    }
+    return true;
+}
+
+function getSpecialOddEvenOptions() {
+    var opts = [{ value: '', label: '不限制' }];
+    for (var odd = 0; odd <= 20; odd++) {
+        var even = 20 - odd;
+        if (odd <= even) {
+            opts.push({ value: odd + ':' + even, label: odd === even ? odd + '奇' + even + '偶（均衡）' : odd + '奇' + even + '偶 / ' + even + '奇' + odd + '偶' });
+        }
+    }
+    return opts;
+}
+
+function getSpecialBigSmallOptions() {
+    var opts = [{ value: '', label: '不限制' }];
+    for (var big = 0; big <= 20; big++) {
+        var small = 20 - big;
+        if (big <= small) {
+            opts.push({ value: big + ':' + small, label: big === small ? big + '大' + small + '小（均衡）' : big + '大' + small + '小 / ' + small + '大' + big + '小' });
+        }
+    }
+    return opts;
+}
+
+function drawFromPoolShuffle(pool, count) {
+    var arr = pool.slice();
+    for (var i = arr.length - 1; i > 0; i--) {
+        var j = secureRandomInt(i + 1);
+        var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr.slice(0, count).sort(function(a, b) { return a - b; });
+}
+
+function loadK8CalibrationResult() {
+    try { var r = localStorage.getItem('k8_calibrate_result'); return r ? JSON.parse(r) : null; }
+    catch (_) { return null; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   快乐8特别版 —— 校准工具
+   ══════════════════════════════════════════════════════════════ */
+
+function createK8CalibrateState() {
+    return {
+        step: 'config',
+        oddEvenRatios: [],
+        bigSmallRatios: [],
+        processing: false,
+        totalDraws: 0,
+        processedDraws: 0,
+        results: [],
+        averagePeriod: null,
+        hitCount: 0,
+    };
+}
+
+function renderK8CalibratePage() {
+    var state = k8CalibrateState;
+    if (!state) return;
+    subpageContent.innerHTML = '';
+
+    var desc = document.createElement('div');
+    desc.className = 'k8-special-desc';
+    desc.innerHTML = '<p>根据快乐8真实开奖结果，每次生成最多10万注号码，仅号码符合奇偶比和大小比筛选条件时才计入有效注数。统计在第多少有效注时命中开奖结果的70%（20个号中命中≥14个），计算所有期数的平均命中期数。</p>';
+    subpageContent.appendChild(desc);
+
+    if (state.step !== 'running') {
+        var saved = loadK8CalibrationResult();
+        if (saved && saved.averagePeriod) {
+            var note = document.createElement('div');
+            note.className = 'k8-special-saved-note';
+            note.innerHTML = '<span>📋 已保存校准结果：平均期数 <strong>' + saved.averagePeriod + '</strong>（基于 ' + saved.hitDraws + '/' + saved.totalDraws + ' 期数据）</span>';
+            subpageContent.appendChild(note);
+        }
+
+        var oeOpts = getSpecialOddEvenOptions();
+        var oeCard = document.createElement('div');
+        oeCard.className = 'config-card';
+        var oeHtml = '<div class="field-label">奇偶比筛选</div><div class="ratio-btn-group" data-ratio-type="k8-oe">';
+        oeOpts.forEach(function(o) {
+            var active = o.value === '' ? state.oddEvenRatios.length === 0 : state.oddEvenRatios.indexOf(o.value) !== -1;
+            oeHtml += '<button type="button" class="ratio-btn' + (active ? ' active' : '') + '" data-ratio-value="' + o.value + '">' + o.label + '</button>';
+        });
+        oeHtml += '</div>';
+        oeCard.innerHTML = oeHtml;
+        subpageContent.appendChild(oeCard);
+
+        var bsOpts = getSpecialBigSmallOptions();
+        var bsCard = document.createElement('div');
+        bsCard.className = 'config-card';
+        var bsHtml = '<div class="field-label">大小比筛选</div><div class="ratio-btn-group" data-ratio-type="k8-bs">';
+        bsOpts.forEach(function(o) {
+            var active = o.value === '' ? state.bigSmallRatios.length === 0 : state.bigSmallRatios.indexOf(o.value) !== -1;
+            bsHtml += '<button type="button" class="ratio-btn' + (active ? ' active' : '') + '" data-ratio-value="' + o.value + '">' + o.label + '</button>';
+        });
+        bsHtml += '</div>';
+        bsCard.innerHTML = bsHtml;
+        subpageContent.appendChild(bsCard);
+    }
+
+    if (state.step === 'running') {
+        var pct = state.totalDraws > 0 ? (state.processedDraws / state.totalDraws * 100) : 0;
+        var pw = document.createElement('div');
+        pw.className = 'calibrate-progress-wrap';
+        pw.innerHTML = '<div class="mc-progress-bar"><div class="mc-progress-fill" id="k8CalFill" style="width:' + Math.min(100, pct) + '%"></div></div>'
+            + '<div class="calibrate-progress-info"><span class="calibrate-progress-hint">⏳ 后台运算中，页面不会卡顿</span><span id="k8CalProgressText">' + state.processedDraws + ' / ' + state.totalDraws + ' 期（' + Math.round(pct) + '%）· 已达标 ' + state.hitCount + ' 期</span></div>';
+        subpageContent.appendChild(pw);
+    }
+
+    if (state.results.length > 0) {
+        subpageContent.appendChild(renderK8CalibrateResults(state));
+    }
+
+    if (state.step !== 'running') {
+        var actions = document.createElement('div');
+        actions.className = 'actions-bar';
+        actions.innerHTML = '<button type="button" class="generate-btn" data-action="k8-calibrate-start"' + (state.processing ? ' disabled' : '') + '>' + (state.processing ? '校准中...' : '开始校准') + '</button>';
+        if (state.results.length > 0) {
+            actions.innerHTML += '<button type="button" class="btn-secondary" data-action="k8-calibrate-reset" style="margin-left:12px">重置筛选条件</button>';
+        }
+        subpageContent.appendChild(actions);
+    }
+
+    if (state.error) {
+        var err = document.createElement('div');
+        err.className = 'error-banner';
+        err.textContent = state.error;
+        subpageContent.appendChild(err);
+    }
+}
+
+function renderK8CalibrateResults(state) {
+    var wrap = document.createElement('div');
+    wrap.className = 'calibrate-results';
+
+    if (state.averagePeriod !== null) {
+        var avgEl = document.createElement('div');
+        avgEl.className = 'calibrate-banner-wrapper';
+        avgEl.innerHTML = '<div class="calibrate-banner"><span class="calibrate-banner-label">平均命中期数</span><span class="calibrate-banner-value">' + state.averagePeriod + '</span></div>';
+        wrap.appendChild(avgEl);
+    }
+
+    var stats = document.createElement('div');
+    stats.className = 'k8-special-saved-note';
+    var hitPct = state.totalDraws > 0 ? (state.hitCount / state.totalDraws * 100).toFixed(1) : 0;
+    stats.innerHTML = '<span>70%命中率达标：' + state.hitCount + '/' + state.totalDraws + ' 期（' + hitPct + '%）' + (state.hitCount > 0 ? ' · 已保存至本地' : '') + '</span>';
+    wrap.appendChild(stats);
+
+    if (state.averagePeriod !== null) {
+        var applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'auto-confirm-btn';
+        applyBtn.dataset.action = 'k8-calibrate-apply';
+        applyBtn.textContent = '应用此结果到智慧选号 ›';
+        wrap.appendChild(applyBtn);
+    }
+
+    var tableWrap = document.createElement('div');
+    tableWrap.className = 'miss-table-wrap';
+    var table = document.createElement('table');
+    table.className = 'miss-table';
+    var html = '<thead><tr><th>期号</th><th>日期</th><th>命中期数</th><th>最大命中</th></tr></thead><tbody>';
+    state.results.forEach(function(r) {
+        html += '<tr class="' + (r.period !== null ? 'calibrate-hit' : 'calibrate-miss') + '"><td>' + r.code + '</td><td>' + (r.date || '') + '</td><td>' + (r.period !== null ? r.period : '—') + '</td><td>' + (r.maxOverlap || 0) + '/20</td></tr>';
+    });
+    html += '</tbody>';
+    table.innerHTML = html;
+    tableWrap.appendChild(table);
+    wrap.appendChild(tableWrap);
+
+    return wrap;
+}
+
+function handleK8CalibrateStart() {
+    var state = k8CalibrateState;
+    if (!state || state.processing) return;
+
+    var db = LotteryDB.getDraws('k8');
+    if (!db || db.length === 0) { showToast('请先加载快乐8历史数据', 'error'); return; }
+    var meta = LotteryDB.getMeta('k8');
+    if (meta && meta.loading) { showToast('数据加载中，请稍候...', 'warning'); return; }
+    if (state.oddEvenRatios.length === 0 && state.bigSmallRatios.length === 0) { showToast('请至少选择一种筛选条件', 'warning'); return; }
+
+    state.step = 'running';
+    state.processing = true;
+    state.totalDraws = db.length;
+    state.processedDraws = 0;
+    state.results = [];
+    state.hitCount = 0;
+    state.averagePeriod = null;
+    state.error = '';
+    renderK8CalibratePage();
+
+    // 清理旧 worker
+    if (k8CalibrateWorker) { k8CalibrateWorker.terminate(); k8CalibrateWorker = null; }
+
+    k8CalibrateWorker = new Worker('./worker.js');
+    k8CalibrateWorker.onmessage = function(e) {
+        var data = e.data;
+        if (data.type === 'k8-progress') {
+            state.processedDraws = data.processedDraws;
+            state.hitCount = data.hitCount;
+            state.results = data.results;
+            updateK8CalibrateProgress(state);
+        } else if (data.type === 'k8-done') {
+            k8CalibrateWorker.terminate();
+            k8CalibrateWorker = null;
+            state.results = data.results;
+            state.averagePeriod = data.averagePeriod;
+            state.hitCount = data.hitCount;
+            state.totalDraws = data.totalDraws;
+            state.step = 'done';
+            state.processing = false;
+            if (state.averagePeriod !== null) {
+                localStorage.setItem('k8_calibrate_result', JSON.stringify({ averagePeriod: state.averagePeriod, totalDraws: state.totalDraws, hitDraws: state.hitCount, timestamp: Date.now() }));
+            }
+            renderK8CalibratePage();
+            if (state.averagePeriod !== null) {
+                showToast('校准完成！平均命中期数：' + state.averagePeriod, 'success');
+            } else {
+                showToast('校准完成，但未产生达标数据', 'warning');
+            }
+        }
+    };
+    k8CalibrateWorker.onerror = function(err) {
+        if (k8CalibrateWorker) { k8CalibrateWorker.terminate(); k8CalibrateWorker = null; }
+        state.step = 'done';
+        state.processing = false;
+        state.error = 'Worker 发生错误：' + err.message;
+        renderK8CalibratePage();
+    };
+
+    k8CalibrateWorker.postMessage({
+        type: 'k8-calibrate',
+        draws: db,
+        oddEvenRatios: state.oddEvenRatios,
+        bigSmallRatios: state.bigSmallRatios
+    });
+}
+
+function updateK8CalibrateProgress(state) {
+    var fill = document.getElementById('k8CalFill');
+    var text = document.getElementById('k8CalProgressText');
+    if (!fill && !text) {
+        // 找不到DOM元素时走全量重绘
+        renderK8CalibratePage();
+        return;
+    }
+    var pct = state.totalDraws > 0 ? Math.round(state.processedDraws / state.totalDraws * 100) : 0;
+    if (fill) fill.style.width = Math.min(100, pct) + '%';
+    if (text) text.textContent = state.processedDraws + ' / ' + state.totalDraws + ' 期（' + pct + '%）· 已达标 ' + state.hitCount + ' 期';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   快乐8特别版 —— 智慧选号
+   ══════════════════════════════════════════════════════════════ */
+
+function createK8SmartState() {
+    var saved = loadK8CalibrationResult();
+    return {
+        step: 'config',
+        calibrationPeriod: saved ? saved.averagePeriod : null,
+        oddEvenRatios: [],
+        bigSmallRatios: [],
+        candidatePool: [],
+        poolBets: [],
+        selectMode: 8,
+        mode: 'single',
+        results: [],
+        form: { generateCount: 2, multipleRedTotal: 10, redDanTotal: 2, redTuoTotal: 8 },
+        error: '',
+        generating: false,
+    };
+}
+
+function renderK8SmartPage() {
+    var state = k8SmartState;
+    if (!state) return;
+    subpageContent.innerHTML = '';
+
+    var calNote = document.createElement('div');
+    calNote.className = 'k8-special-saved-note';
+    if (state.calibrationPeriod) {
+        calNote.innerHTML = '<span>📊 校准平均期数：<strong>' + state.calibrationPeriod + '</strong> → 自动选号将生成第 ' + state.calibrationPeriod + ' 组有效号码作为候选池</span>';
+    } else {
+        calNote.innerHTML = '<span>⚠️ 尚未运行校准工具，请先在校准工具中完成校准</span>';
+    }
+    subpageContent.appendChild(calNote);
+
+    if (state.step === 'config') {
+        var oeOpts = getSpecialOddEvenOptions();
+        var oeCard = document.createElement('div');
+        oeCard.className = 'config-card';
+        var oeHtml = '<div class="field-label">奇偶比筛选</div><div class="ratio-btn-group" data-ratio-type="k8-oe">';
+        oeOpts.forEach(function(o) {
+            var active = o.value === '' ? state.oddEvenRatios.length === 0 : state.oddEvenRatios.indexOf(o.value) !== -1;
+            oeHtml += '<button type="button" class="ratio-btn' + (active ? ' active' : '') + '" data-ratio-value="' + o.value + '">' + o.label + '</button>';
+        });
+        oeHtml += '</div>';
+        oeCard.innerHTML = oeHtml;
+        subpageContent.appendChild(oeCard);
+
+        var bsOpts = getSpecialBigSmallOptions();
+        var bsCard = document.createElement('div');
+        bsCard.className = 'config-card';
+        var bsHtml = '<div class="field-label">大小比筛选</div><div class="ratio-btn-group" data-ratio-type="k8-bs">';
+        bsOpts.forEach(function(o) {
+            var active = o.value === '' ? state.bigSmallRatios.length === 0 : state.bigSmallRatios.indexOf(o.value) !== -1;
+            bsHtml += '<button type="button" class="ratio-btn' + (active ? ' active' : '') + '" data-ratio-value="' + o.value + '">' + o.label + '</button>';
+        });
+        bsHtml += '</div>';
+        bsCard.innerHTML = bsHtml;
+        subpageContent.appendChild(bsCard);
+
+        var actions = document.createElement('div');
+        actions.className = 'actions-bar';
+        actions.innerHTML = '<button type="button" class="generate-btn" data-action="k8-smart-auto-pick"' + (state.generating || !state.calibrationPeriod ? ' disabled' : '') + '>' + (state.generating ? '生成中...' : '开始自动选号') + '</button>';
+        subpageContent.appendChild(actions);
+    }
+
+    if (state.step === 'pool-ready' || state.step === 'selection') {
+        subpageContent.appendChild(renderK8SmartPool(state));
+    }
+
+    if (state.step === 'selection') {
+        var maxSel = Math.min(state.candidatePool.length, 10);
+        var mBar = document.createElement('div');
+        mBar.className = 'k8-mode-bar';
+        for (var mi = 5; mi <= maxSel; mi++) {
+            var mb = document.createElement('button');
+            mb.type = 'button';
+            mb.className = 'k8-mode-tab' + (state.selectMode === mi ? ' active' : '');
+            mb.dataset.k8SmartSelect = String(mi);
+            var cn = K8_SELECT_NAMES[mi - 1];
+            mb.textContent = cn;
+            mBar.appendChild(mb);
+        }
+        subpageContent.appendChild(mBar);
+
+        var sw = document.createElement('div');
+        sw.className = 'mode-switch';
+        var mLabels = { single: '单式', multiple: '复式', dantuo: '胆拖' };
+        ['single', 'multiple', 'dantuo'].forEach(function(m) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'mode-tab' + (state.mode === m ? ' active' : '');
+            b.dataset.k8SmartMode = m;
+            b.textContent = mLabels[m];
+            if (state.generating) b.disabled = true;
+            sw.appendChild(b);
+        });
+        subpageContent.appendChild(sw);
+
+        var sc = state.selectMode;
+        var cfgCard = document.createElement('div');
+        cfgCard.className = 'config-card';
+        if (state.mode === 'single') {
+            cfgCard.innerHTML = '<p class="helper-text">从候选池 ' + state.candidatePool.length + ' 个号码中随机选 <b>' + sc + '</b> 个（' + K8_SELECT_NAMES[sc - 1] + '）</p>';
+        } else if (state.mode === 'multiple') {
+            cfgCard.innerHTML = '<div class="form-grid"><label class="field-block"><span class="field-label">复式号码数</span><input class="field-input" data-field="k8SmartMultiple" type="number" min="' + (sc + 1) + '" max="' + state.candidatePool.length + '" value="' + state.form.multipleRedTotal + '"></label></div>';
+        } else {
+            cfgCard.innerHTML = '<div class="form-grid four-col"><label class="field-block"><span class="field-label">胆码数量</span><input class="field-input" data-field="k8SmartDan" type="number" min="1" max="' + (sc - 1) + '" value="' + state.form.redDanTotal + '"></label><label class="field-block"><span class="field-label">拖码数量</span><input class="field-input" data-field="k8SmartTuo" type="number" min="1" max="' + (state.candidatePool.length - 1) + '" value="' + state.form.redTuoTotal + '"></label></div>';
+        }
+        subpageContent.appendChild(cfgCard);
+
+        var genAct = document.createElement('div');
+        genAct.className = 'actions-bar';
+        genAct.innerHTML = '<button type="button" class="generate-btn" data-action="k8-smart-generate"' + (state.generating ? ' disabled' : '') + '>' + (state.generating ? '生成中...' : '开始生成') + '</button>';
+        subpageContent.appendChild(genAct);
+    }
+
+    if (state.error) {
+        var err = document.createElement('div');
+        err.className = 'error-banner';
+        err.textContent = state.error;
+        subpageContent.appendChild(err);
+    }
+
+    if (state.results.length > 0) {
+        var rs = document.createElement('section');
+        rs.className = 'preview-card';
+        rs.appendChild(domEl('h3', 'preview-title', '选号结果'));
+        rs.appendChild(renderK8Results(state.results, state.selectMode));
+        subpageContent.appendChild(rs);
+    }
+}
+
+function renderK8SmartPool(state) {
+    var wrap = document.createElement('div');
+    wrap.className = 'auto-step-card';
+
+    var title = document.createElement('h3');
+    title.className = 'auto-step-title';
+    title.textContent = '候选号码池';
+    wrap.appendChild(title);
+
+    if (state.poolBets.length > 0) {
+        var poolInfo = document.createElement('div');
+        poolInfo.className = 'auto-kill-groups';
+        state.poolBets.forEach(function(bet, idx) {
+            var row = document.createElement('div');
+            row.className = 'auto-kill-group-row';
+            row.innerHTML = '<span class="auto-kill-label">第' + (idx + 1) + '组</span>' + formatNums(bet);
+            poolInfo.appendChild(row);
+        });
+        wrap.appendChild(poolInfo);
+    }
+
+    var pool = document.createElement('div');
+    pool.className = 'killed-summary';
+    pool.textContent = '合并去重后候选池：' + formatNums(sortAsc(state.candidatePool)) + '  共 ' + state.candidatePool.length + ' 个号码';
+    wrap.appendChild(pool);
+
+    return wrap;
+}
+
+async function handleK8SmartAutoPick() {
+    var state = k8SmartState;
+    if (!state || state.generating || !state.calibrationPeriod) return;
+    if (state.oddEvenRatios.length === 0 && state.bigSmallRatios.length === 0) {
+        showToast('请至少选择一种筛选条件', 'warning');
+        return;
+    }
+
+    state.generating = true;
+    renderK8SmartPage();
+
+    var period = state.calibrationPeriod;
+    var oeR = state.oddEvenRatios;
+    var bsR = state.bigSmallRatios;
+    var poolBets = [];
+
+    for (var run = 0; run < 2; run++) {
+        var validCount = 0;
+        var targetBet = null;
+
+        while (!targetBet) {
+            for (var att = 0; att < 2000; att++) {
+                var bet = simulatePhysicalDraw(20, 80).drawn;
+                if (validateSimpleRatios(bet, oeR, bsR)) {
+                    validCount++;
+                    if (validCount === period) { targetBet = bet; break; }
+                }
+            }
+        }
+        poolBets.push(targetBet);
+    }
+
+    var merged = {};
+    for (var p = 0; p < poolBets.length; p++) {
+        for (var n = 0; n < poolBets[p].length; n++) merged[poolBets[p][n]] = true;
+    }
+    var pool = [];
+    for (var k in merged) { if (merged.hasOwnProperty(k)) pool.push(parseInt(k, 10)); }
+
+    state.candidatePool = pool.sort(function(a, b) { return a - b; });
+    state.poolBets = poolBets;
+
+    if (state.candidatePool.length < state.selectMode) {
+        state.selectMode = Math.min(state.selectMode, state.candidatePool.length);
+    }
+
+    state.step = 'selection';
+    state.generating = false;
+    showToast('候选池生成完毕，共 ' + state.candidatePool.length + ' 个号码', 'success');
+    renderK8SmartPage();
+}
+
+function handleK8SmartGenerate() {
+    var state = k8SmartState;
+    if (!state || state.generating) return;
+
+    var pool = state.candidatePool;
+    var sc = state.selectMode;
+    if (pool.length < sc) { state.error = '候选池不足，请重新自动选号'; renderK8SmartPage(); return; }
+
+    state.generating = true;
+    renderK8SmartPage();
+
+    var results = [];
+    var count = state.form.generateCount || 1;
+
+    for (var i = 0; i < count; i++) {
+        var t;
+        if (state.mode === 'single') {
+            t = { red: drawFromPoolShuffle(pool, sc), blue: [], mode: 'single' };
+        } else if (state.mode === 'multiple') {
+            var mc = Math.min(state.form.multipleRedTotal, pool.length);
+            t = { red: drawFromPoolShuffle(pool, mc), blue: [], mode: 'multiple' };
+        } else {
+            var dc = Math.min(state.form.redDanTotal, sc - 1);
+            var tc = Math.min(state.form.redTuoTotal, pool.length - dc);
+            var da = drawFromPoolShuffle(pool, dc);
+            var rem = [];
+            for (var r = 0; r < pool.length; r++) { if (da.indexOf(pool[r]) === -1) rem.push(pool[r]); }
+            var ta = rem.length >= tc ? drawFromPoolShuffle(rem, tc) : rem;
+            t = { redDan: da, redTuo: ta, blue: [], mode: 'dantuo' };
+        }
+        results.push(t);
+    }
+
+    state.results = results;
+    state.error = '';
+    state.generating = false;
+    renderK8SmartPage();
+}
+
+function handleSpecialRatioToggle(state, field, value) {
+    if (value === '') {
+        state[field] = [];
+    } else {
+        var arr = state[field];
+        var idx = arr.indexOf(value);
+        if (idx !== -1) { arr.splice(idx, 1); } else { arr.push(value); }
+    }
+    if (state.results) state.results = [];
+    if (state.step === 'done') state.step = 'config';
+}
+
+/* ── 启动时自动加载预计算校准结果 ── */
+(function autoLoadK8Calibration() {
+    if (localStorage.getItem('k8_calibrate_result')) return;
+    fetch('./assets/calibration-result.json')
+        .then(function(r) { if (!r.ok) throw new Error('not found'); return r.json(); })
+        .then(function(data) {
+            if (data && data.averagePeriod) {
+                localStorage.setItem('k8_calibrate_result', JSON.stringify(data));
+                console.log('已加载预计算校准结果: 平均期数 ' + data.averagePeriod);
+            }
+        })
+        .catch(function() { /* 文件不存在，无需处理 */ });
+})();
 

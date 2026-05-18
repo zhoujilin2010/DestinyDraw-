@@ -3210,3 +3210,128 @@ code, pre {
     }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   快乐8特别版
+   ══════════════════════════════════════════════════════════════ */
+
+.k8-special-desc {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+.k8-special-desc p { margin: 0; }
+
+.k8-special-saved-note {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: var(--radius-md);
+    padding: 12px 18px;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.k8-special-saved-note strong {
+    color: var(--accent-emerald);
+}
+
+.ratio-btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.ratio-btn {
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    font-family: 'Geist Mono', monospace;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    line-height: 1.4;
+}
+
+.ratio-btn:hover {
+    border-color: var(--accent-emerald);
+    color: var(--accent-emerald);
+}
+
+.ratio-btn.active {
+    background: var(--accent-emerald);
+    border-color: var(--accent-emerald);
+    color: #fff;
+}
+
+.calibrate-progress-wrap {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+.calibrate-progress-info {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.calibrate-progress-hint {
+    font-size: 0.8rem;
+    color: var(--accent-emerald);
+    font-weight: 500;
+}
+
+.calibrate-results {
+    margin-bottom: 16px;
+}
+
+.calibrate-banner-wrapper {
+    margin-bottom: 12px;
+}
+
+.calibrate-banner {
+    text-align: center;
+    padding: 24px 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border-light);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(59, 130, 246, 0.08));
+}
+
+.calibrate-banner-label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-tertiary);
+    margin-bottom: 6px;
+}
+
+.calibrate-banner-value {
+    display: block;
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--accent-emerald);
+    font-family: 'Geist Mono', monospace;
+}
+
+.calibrate-hit td {
+    color: var(--accent-emerald) !important;
+}
+
+.calibrate-miss td {
+    color: var(--text-tertiary) !important;
+    opacity: 0.6;
+}
+
