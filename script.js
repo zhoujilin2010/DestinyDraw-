@@ -2527,6 +2527,9 @@ subpageContent.addEventListener('change', event => {
         } else if (field === 'k8SmartTuo') {
             k8SmartState.form.redTuoTotal = Math.max(1, val);
             renderK8SmartPage();
+        } else if (field === 'k8SmartGenCount') {
+            k8SmartState.form.generateCount = Math.max(1, val);
+            renderK8SmartPage();
         }
     }
 });
@@ -5928,7 +5931,7 @@ function renderK8SmartPage() {
         var maxSel = Math.min(state.candidatePool.length, 10);
         var mBar = document.createElement('div');
         mBar.className = 'k8-mode-bar';
-        for (var mi = 5; mi <= maxSel; mi++) {
+        for (var mi = 1; mi <= maxSel; mi++) {
             var mb = document.createElement('button');
             mb.type = 'button';
             mb.className = 'k8-mode-tab' + (state.selectMode === mi ? ' active' : '');
@@ -5957,11 +5960,11 @@ function renderK8SmartPage() {
         var cfgCard = document.createElement('div');
         cfgCard.className = 'config-card';
         if (state.mode === 'single') {
-            cfgCard.innerHTML = '<p class="helper-text">从候选池 ' + state.candidatePool.length + ' 个号码中随机选 <b>' + sc + '</b> 个（' + K8_SELECT_NAMES[sc - 1] + '）</p>';
+            cfgCard.innerHTML = '<div class="form-grid"><label class="field-block"><span class="field-label">生成组数</span><input class="field-input" data-field="k8SmartGenCount" type="number" min="1" max="100" value="' + state.form.generateCount + '"></label></div>';
         } else if (state.mode === 'multiple') {
-            cfgCard.innerHTML = '<div class="form-grid"><label class="field-block"><span class="field-label">复式号码数</span><input class="field-input" data-field="k8SmartMultiple" type="number" min="' + (sc + 1) + '" max="' + state.candidatePool.length + '" value="' + state.form.multipleRedTotal + '"></label></div>';
+            cfgCard.innerHTML = '<div class="form-grid"><label class="field-block"><span class="field-label">生成组数</span><input class="field-input" data-field="k8SmartGenCount" type="number" min="1" max="100" value="' + state.form.generateCount + '"></label><label class="field-block"><span class="field-label">复式号码数</span><input class="field-input" data-field="k8SmartMultiple" type="number" min="' + (sc + 1) + '" max="' + state.candidatePool.length + '" value="' + state.form.multipleRedTotal + '"></label></div>';
         } else {
-            cfgCard.innerHTML = '<div class="form-grid four-col"><label class="field-block"><span class="field-label">胆码数量</span><input class="field-input" data-field="k8SmartDan" type="number" min="1" max="' + (sc - 1) + '" value="' + state.form.redDanTotal + '"></label><label class="field-block"><span class="field-label">拖码数量</span><input class="field-input" data-field="k8SmartTuo" type="number" min="1" max="' + (state.candidatePool.length - 1) + '" value="' + state.form.redTuoTotal + '"></label></div>';
+            cfgCard.innerHTML = '<div class="form-grid"><label class="field-block"><span class="field-label">生成组数</span><input class="field-input" data-field="k8SmartGenCount" type="number" min="1" max="100" value="' + state.form.generateCount + '"></label><label class="field-block"><span class="field-label">胆码数量</span><input class="field-input" data-field="k8SmartDan" type="number" min="1" max="' + (sc - 1) + '" value="' + state.form.redDanTotal + '"></label><label class="field-block"><span class="field-label">拖码数量</span><input class="field-input" data-field="k8SmartTuo" type="number" min="1" max="' + (state.candidatePool.length - 1) + '" value="' + state.form.redTuoTotal + '"></label></div>';
         }
         subpageContent.appendChild(cfgCard);
 
@@ -5996,21 +5999,9 @@ function renderK8SmartPool(state) {
     title.textContent = '候选号码池';
     wrap.appendChild(title);
 
-    if (state.poolBets.length > 0) {
-        var poolInfo = document.createElement('div');
-        poolInfo.className = 'auto-kill-groups';
-        state.poolBets.forEach(function(bet, idx) {
-            var row = document.createElement('div');
-            row.className = 'auto-kill-group-row';
-            row.innerHTML = '<span class="auto-kill-label">第' + (idx + 1) + '组</span>' + formatNums(bet);
-            poolInfo.appendChild(row);
-        });
-        wrap.appendChild(poolInfo);
-    }
-
     var pool = document.createElement('div');
     pool.className = 'killed-summary';
-    pool.textContent = '合并去重后候选池：' + formatNums(sortAsc(state.candidatePool)) + '  共 ' + state.candidatePool.length + ' 个号码';
+    pool.textContent = '候选号码池：' + formatNums(sortAsc(state.candidatePool)) + '  共 ' + state.candidatePool.length + ' 个号码';
     wrap.appendChild(pool);
 
     return wrap;
@@ -6019,10 +6010,6 @@ function renderK8SmartPool(state) {
 function handleK8SmartAutoPick() {
     var state = k8SmartState;
     if (!state || state.generating || !state.calibrationPeriod) return;
-    if (state.oddEvenRatios.length === 0 && state.bigSmallRatios.length === 0) {
-        showToast('请至少选择一种筛选条件', 'warning');
-        return;
-    }
 
     state.generating = true;
     state.error = '';
@@ -6076,22 +6063,53 @@ function handleK8SmartGenerate() {
 
     var results = [];
     var count = state.form.generateCount || 1;
+    var hasRatios = state.oddEvenRatios.length > 0 || state.bigSmallRatios.length > 0;
 
     for (var i = 0; i < count; i++) {
-        var t;
-        if (state.mode === 'single') {
-            t = { red: drawFromPoolShuffle(pool, sc), blue: [], mode: 'single' };
-        } else if (state.mode === 'multiple') {
-            var mc = Math.min(state.form.multipleRedTotal, pool.length);
-            t = { red: drawFromPoolShuffle(pool, mc), blue: [], mode: 'multiple' };
-        } else {
-            var dc = Math.min(state.form.redDanTotal, sc - 1);
-            var tc = Math.min(state.form.redTuoTotal, pool.length - dc);
-            var da = drawFromPoolShuffle(pool, dc);
-            var rem = [];
-            for (var r = 0; r < pool.length; r++) { if (da.indexOf(pool[r]) === -1) rem.push(pool[r]); }
-            var ta = rem.length >= tc ? drawFromPoolShuffle(rem, tc) : rem;
-            t = { redDan: da, redTuo: ta, blue: [], mode: 'dantuo' };
+        var t = null;
+        if (hasRatios) {
+            var MAX_R = 500;
+            for (var r = 0; r < MAX_R; r++) {
+                if (state.mode === 'single') {
+                    var sel = drawFromPoolShuffle(pool, sc);
+                    if (k8MatchScaledRatios(sel, state.oddEvenRatios, state.bigSmallRatios)) {
+                        t = { red: sel, blue: [], mode: 'single' }; break;
+                    }
+                } else if (state.mode === 'multiple') {
+                    var mc = Math.min(state.form.multipleRedTotal, pool.length);
+                    var sel = drawFromPoolShuffle(pool, mc);
+                    if (k8MatchScaledRatios(sel, state.oddEvenRatios, state.bigSmallRatios)) {
+                        t = { red: sel, blue: [], mode: 'multiple' }; break;
+                    }
+                } else {
+                    var dc = Math.min(state.form.redDanTotal, sc - 1);
+                    var tc = Math.min(state.form.redTuoTotal, pool.length - dc);
+                    var da = drawFromPoolShuffle(pool, dc);
+                    var rem = [];
+                    for (var ri = 0; ri < pool.length; ri++) { if (da.indexOf(pool[ri]) === -1) rem.push(pool[ri]); }
+                    var ta = rem.length >= tc ? drawFromPoolShuffle(rem, tc) : rem;
+                    var allNums = da.concat(ta);
+                    if (k8MatchScaledRatios(allNums, state.oddEvenRatios, state.bigSmallRatios)) {
+                        t = { redDan: da, redTuo: ta, blue: [], mode: 'dantuo' }; break;
+                    }
+                }
+            }
+        }
+        if (!t) {
+            if (state.mode === 'single') {
+                t = { red: drawFromPoolShuffle(pool, sc), blue: [], mode: 'single' };
+            } else if (state.mode === 'multiple') {
+                var mc = Math.min(state.form.multipleRedTotal, pool.length);
+                t = { red: drawFromPoolShuffle(pool, mc), blue: [], mode: 'multiple' };
+            } else {
+                var dc = Math.min(state.form.redDanTotal, sc - 1);
+                var tc = Math.min(state.form.redTuoTotal, pool.length - dc);
+                var da = drawFromPoolShuffle(pool, dc);
+                var rem = [];
+                for (var ri = 0; ri < pool.length; ri++) { if (da.indexOf(pool[ri]) === -1) rem.push(pool[ri]); }
+                var ta = rem.length >= tc ? drawFromPoolShuffle(rem, tc) : rem;
+                t = { redDan: da, redTuo: ta, blue: [], mode: 'dantuo' };
+            }
         }
         results.push(t);
     }
@@ -6100,6 +6118,40 @@ function handleK8SmartGenerate() {
     state.error = '';
     state.generating = false;
     renderK8SmartPage();
+}
+
+/* 将 20 号比例缩放至任意号码数后匹配 */
+function k8MatchScaledRatios(numbers, oddEvenRatios, bigSmallRatios) {
+    var n = numbers.length;
+    if (oddEvenRatios && oddEvenRatios.length > 0) {
+        var odd = 0, even = 0;
+        for (var i = 0; i < n; i++) numbers[i] % 2 ? odd++ : even++;
+        var ok = false;
+        for (var o = 0; o < oddEvenRatios.length; o++) {
+            var p = oddEvenRatios[o].split(':');
+            var a = parseInt(p[0], 10), b = parseInt(p[1], 10);
+            var t = a + b;
+            var na = Math.round(a * n / t);
+            var nb = n - na;
+            if ((odd === na && even === nb) || (odd === nb && even === na)) { ok = true; break; }
+        }
+        if (!ok) return false;
+    }
+    if (bigSmallRatios && bigSmallRatios.length > 0) {
+        var big = 0, small = 0;
+        for (var i = 0; i < n; i++) numbers[i] > 40 ? big++ : small++;
+        var ok = false;
+        for (var b = 0; b < bigSmallRatios.length; b++) {
+            var p = bigSmallRatios[b].split(':');
+            var a = parseInt(p[0], 10), bv = parseInt(p[1], 10);
+            var t = a + bv;
+            var na = Math.round(a * n / t);
+            var nb = n - na;
+            if (big === na && small === nb) { ok = true; break; }
+        }
+        if (!ok) return false;
+    }
+    return true;
 }
 
 function handleSpecialRatioToggle(state, field, value) {
