@@ -134,13 +134,54 @@ function handleK8Calibrate(cfg) {
     self.postMessage({ type: 'k8-done', results: results, averagePeriod: averagePeriod, hitCount: hitCount, totalDraws: draws.length });
 }
 
+/* ══════════════════════════════════════════════════════════════
+   K8 智慧选号 —— 候选池生成（Worker 端）
+   ══════════════════════════════════════════════════════════════ */
+function handleK8SmartPick(cfg) {
+    var period = cfg.period;
+    var oeR = cfg.oddEvenRatios;
+    var bsR = cfg.bigSmallRatios;
+    var poolBets = [];
+
+    for (var run = 0; run < 2; run++) {
+        var validCount = 0;
+        var targetBet = null;
+        var maxAttempts = cfg.maxAttempts || 10000000;
+        for (var att = 0; att < maxAttempts && !targetBet; att++) {
+            var bet = k8SimulateDraw(20, 80);
+            if (k8ValidateRatios(bet, oeR, bsR)) {
+                validCount++;
+                if (validCount === period) {
+                    targetBet = bet;
+                    break;
+                }
+            }
+        }
+        if (targetBet) poolBets.push(targetBet);
+    }
+
+    // 合并两批号码去重
+    var seen = {};
+    for (var p = 0; p < poolBets.length; p++) {
+        for (var n = 0; n < poolBets[p].length; n++) seen[poolBets[p][n]] = true;
+    }
+    var pool = [];
+    for (var key in seen) pool.push(parseInt(key, 10));
+    pool.sort(function(a, b) { return a - b; });
+
+    self.postMessage({ type: 'k8-smart-done', pool: pool, poolBets: poolBets });
+}
+
 self.onmessage = function(e) {
     var cfg = e.data;
     if (cfg.type === 'k8-calibrate') {
         handleK8Calibrate(cfg);
         return;
     }
-    var cfg = e.data;
+    if (cfg.type === 'k8-smart-pick') {
+        handleK8SmartPick(cfg);
+        return;
+    }
     var CHUNK = 200000;  // 每个时间切片处理的期数
     var tot = 0, sec = 0;
     var bt = cfg.betType, pm = cfg.pickMode;

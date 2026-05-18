@@ -1501,6 +1501,7 @@ function openSubpage(pageKey) {
 function goHome() {
     if (lifeSimWorker) { lifeSimWorker.terminate(); lifeSimWorker = null; }
     if (k8CalibrateWorker) { k8CalibrateWorker.terminate(); k8CalibrateWorker = null; }
+    if (k8SmartWorker) { k8SmartWorker.terminate(); k8SmartWorker = null; }
     lifeSimState = null;
     missState = null;
     k8CalibrateState = null;
@@ -2570,6 +2571,7 @@ function fillComment(template, vars) {
 let lifeSimState = null;
 let lifeSimWorker = null;
 let k8CalibrateWorker = null;
+let k8SmartWorker = null;
 
 function createLifeSimState() {
     return {
@@ -5663,7 +5665,7 @@ function renderK8CalibratePage() {
         if (saved && saved.averagePeriod) {
             var note = document.createElement('div');
             note.className = 'k8-special-saved-note';
-            note.innerHTML = '<span>📋 已保存校准结果：平均期数 <strong>' + saved.averagePeriod + '</strong>（基于 ' + saved.hitDraws + '/' + saved.totalDraws + ' 期数据）</span>';
+            note.innerHTML = '<span>📋 已保存校准结果：平均每注需 <strong>' + saved.averagePeriod + '</strong> 组有效号码即可命中12/20（' + saved.hitDraws + '/' + saved.totalDraws + ' 期全部达标）</span>';
             subpageContent.appendChild(note);
         }
 
@@ -5737,7 +5739,7 @@ function renderK8CalibrateResults(state) {
     var stats = document.createElement('div');
     stats.className = 'k8-special-saved-note';
     var hitPct = state.totalDraws > 0 ? (state.hitCount / state.totalDraws * 100).toFixed(1) : 0;
-    stats.innerHTML = '<span>60%命中率达标：' + state.hitCount + '/' + state.totalDraws + ' 期（' + hitPct + '%）' + (state.hitCount > 0 ? ' · 已保存至本地' : '') + '</span>';
+    stats.innerHTML = '<span>60%命中率（12/20）达标：' + state.hitCount + '/' + state.totalDraws + ' 期（' + hitPct + '%）' + (state.hitCount > 0 ? ' · 已保存至本地' : '') + '</span>';
     wrap.appendChild(stats);
 
     if (state.averagePeriod !== null) {
@@ -5875,13 +5877,19 @@ function renderK8SmartPage() {
     var calNote = document.createElement('div');
     calNote.className = 'k8-special-saved-note';
     if (state.calibrationPeriod) {
-        calNote.innerHTML = '<span>📊 校准平均期数：<strong>' + state.calibrationPeriod + '</strong> → 自动选号将生成第 ' + state.calibrationPeriod + ' 组有效号码作为候选池</span>';
+        calNote.innerHTML = '<span>📊 校准数据：平均第 <strong>' + state.calibrationPeriod + '</strong> 组有效号码即可命中12/20 → 将生成 ' + state.calibrationPeriod + ' 组号码作为候选池</span>';
     } else {
         calNote.innerHTML = '<span>⚠️ 尚未运行校准工具，请先在校准工具中完成校准</span>';
     }
     subpageContent.appendChild(calNote);
 
     if (state.step === 'config') {
+        if (state.generating) {
+            var waitWrap = document.createElement('div');
+            waitWrap.className = 'calibrate-progress-wrap';
+            waitWrap.innerHTML = '<div class="calibrate-progress-info"><span class="calibrate-progress-hint">⏳ 后台运算中，页面不会卡顿</span><span>正在生成候选池（约需几秒）...</span></div>';
+            subpageContent.appendChild(waitWrap);
+        }
         var oeOpts = getSpecialOddEvenOptions();
         var oeCard = document.createElement('div');
         oeCard.className = 'config-card';
@@ -6008,7 +6016,7 @@ function renderK8SmartPool(state) {
     return wrap;
 }
 
-async function handleK8SmartAutoPick() {
+function handleK8SmartAutoPick() {
     var state = k8SmartState;
     if (!state || state.generating || !state.calibrationPeriod) return;
     if (state.oddEvenRatios.length === 0 && state.bigSmallRatios.length === 0) {
@@ -6017,47 +6025,42 @@ async function handleK8SmartAutoPick() {
     }
 
     state.generating = true;
+    state.error = '';
     renderK8SmartPage();
 
-    var period = state.calibrationPeriod;
-    var oeR = state.oddEvenRatios;
-    var bsR = state.bigSmallRatios;
-    var poolBets = [];
+    if (k8SmartWorker) { k8SmartWorker.terminate(); k8SmartWorker = null; }
 
-    for (var run = 0; run < 2; run++) {
-        var validCount = 0;
-        var targetBet = null;
+    k8SmartWorker = new Worker('./worker.js');
+    k8SmartWorker.onmessage = function(e) {
+        var data = e.data;
+        if (data.type === 'k8-smart-done') {
+            k8SmartWorker.terminate();
+            k8SmartWorker = null;
+            state.poolBets = data.poolBets;
+            state.candidatePool = data.pool;
 
-        while (!targetBet) {
-            for (var att = 0; att < 2000; att++) {
-                var bet = simulatePhysicalDraw(20, 80).drawn;
-                if (validateSimpleRatios(bet, oeR, bsR)) {
-                    validCount++;
-                    if (validCount === period) { targetBet = bet; break; }
-                }
+            if (state.candidatePool.length < state.selectMode) {
+                state.selectMode = Math.min(state.selectMode, state.candidatePool.length);
             }
+            state.step = 'selection';
+            state.generating = false;
+            showToast('候选池生成完毕，共 ' + state.candidatePool.length + ' 个号码', 'success');
+            renderK8SmartPage();
         }
-        poolBets.push(targetBet);
-    }
+    };
+    k8SmartWorker.onerror = function(err) {
+        if (k8SmartWorker) { k8SmartWorker.terminate(); k8SmartWorker = null; }
+        state.generating = false;
+        state.error = 'Worker 发生错误：' + err.message;
+        renderK8SmartPage();
+    };
 
-    var merged = {};
-    for (var p = 0; p < poolBets.length; p++) {
-        for (var n = 0; n < poolBets[p].length; n++) merged[poolBets[p][n]] = true;
-    }
-    var pool = [];
-    for (var k in merged) { if (merged.hasOwnProperty(k)) pool.push(parseInt(k, 10)); }
-
-    state.candidatePool = pool.sort(function(a, b) { return a - b; });
-    state.poolBets = poolBets;
-
-    if (state.candidatePool.length < state.selectMode) {
-        state.selectMode = Math.min(state.selectMode, state.candidatePool.length);
-    }
-
-    state.step = 'selection';
-    state.generating = false;
-    showToast('候选池生成完毕，共 ' + state.candidatePool.length + ' 个号码', 'success');
-    renderK8SmartPage();
+    k8SmartWorker.postMessage({
+        type: 'k8-smart-pick',
+        period: state.calibrationPeriod,
+        oddEvenRatios: state.oddEvenRatios,
+        bigSmallRatios: state.bigSmallRatios
+    });
 }
 
 function handleK8SmartGenerate() {
@@ -6111,15 +6114,14 @@ function handleSpecialRatioToggle(state, field, value) {
     if (state.step === 'done') state.step = 'config';
 }
 
-/* ── 启动时自动加载预计算校准结果 ── */
+/* ── 启动时自动加载预计算校准结果（始终覆盖本地旧数据） ── */
 (function autoLoadK8Calibration() {
-    if (localStorage.getItem('k8_calibrate_result')) return;
     fetch('./assets/calibration-result.json')
         .then(function(r) { if (!r.ok) throw new Error('not found'); return r.json(); })
         .then(function(data) {
-            if (data && data.averagePeriod) {
+            if (data && data.averagePeriod && data.hitDraws === data.totalDraws) {
                 localStorage.setItem('k8_calibrate_result', JSON.stringify(data));
-                console.log('已加载预计算校准结果: 平均期数 ' + data.averagePeriod);
+                console.log('已加载预计算校准结果: 平均期数 ' + data.averagePeriod + ', 达标 ' + data.hitDraws + '/' + data.totalDraws + ' 期');
             }
         })
         .catch(function() { /* 文件不存在，无需处理 */ });
