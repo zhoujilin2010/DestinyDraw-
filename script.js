@@ -5655,7 +5655,7 @@ function renderK8CalibratePage() {
 
     var desc = document.createElement('div');
     desc.className = 'k8-special-desc';
-    desc.innerHTML = '<p>根据快乐8真实开奖结果，每次生成最多10万注号码，仅号码符合奇偶比和大小比筛选条件时才计入有效注数。统计在第多少有效注时命中开奖结果的70%（20个号中命中≥14个），计算所有期数的平均命中期数。</p>';
+    desc.innerHTML = '<p>根据快乐8真实开奖结果，每次生成最多10万注号码，仅号码符合奇偶比和大小比筛选条件时才计入有效注数。统计在第多少有效注时命中开奖结果的60%（20个号中命中≥12个），计算所有期数的平均命中期数。</p>';
     subpageContent.appendChild(desc);
 
     if (state.step !== 'running') {
@@ -5737,7 +5737,7 @@ function renderK8CalibrateResults(state) {
     var stats = document.createElement('div');
     stats.className = 'k8-special-saved-note';
     var hitPct = state.totalDraws > 0 ? (state.hitCount / state.totalDraws * 100).toFixed(1) : 0;
-    stats.innerHTML = '<span>70%命中率达标：' + state.hitCount + '/' + state.totalDraws + ' 期（' + hitPct + '%）' + (state.hitCount > 0 ? ' · 已保存至本地' : '') + '</span>';
+    stats.innerHTML = '<span>60%命中率达标：' + state.hitCount + '/' + state.totalDraws + ' 期（' + hitPct + '%）' + (state.hitCount > 0 ? ' · 已保存至本地' : '') + '</span>';
     wrap.appendChild(stats);
 
     if (state.averagePeriod !== null) {

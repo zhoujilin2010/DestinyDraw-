@@ -89,7 +89,7 @@ function handleK8Calibrate(cfg) {
     var oeR = cfg.oddEvenRatios;
     var bsR = cfg.bigSmallRatios;
     var MAX_BETS = 100000;
-    var TARGET = 14;
+    var TARGET = 12;
     var results = [];
     var hitCount = 0;
 

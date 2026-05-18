@@ -62,7 +62,7 @@ function loadLocalDraws() {
 
 function calibrate(draws, oeRatios, bsRatios) {
     var MAX_BETS = 100000;
-    var TARGET = 14;
+    var TARGET = 12;
     var hitCount = 0;
     var results = [];
     var start = Date.now();
@@ -110,7 +110,7 @@ async function main() {
     var bsRatios = ['10:10', '9:11', '11:9', '12:8', '8:12', '13:7', '7:13'];
     console.log('筛选条件: 奇偶比 [' + oeRatios.join(',') + ']  大小比 [' + bsRatios.join(',') + ']');
     var draws = loadLocalDraws();
-    console.log('开始校准 (' + draws.length + ' 期, 每期最多' + (100000).toLocaleString() + '有效注, 目标≥14/20)...');
+    console.log('开始校准 (' + draws.length + ' 期, 每期最多' + (100000).toLocaleString() + '有效注, 目标≥12/20)...');
     var result = calibrate(draws, oeRatios, bsRatios);
     var totalTime = ((Date.now() - result.timestamp) / 1000).toFixed(0);
     console.log('');
